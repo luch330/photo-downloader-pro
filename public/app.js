@@ -22,12 +22,16 @@ const statusEl = document.getElementById('status');
 const downloadBtn = document.getElementById('downloadBtn');
 const advancedSettings = document.querySelector('.advanced-settings');
 
+const SETTINGS_KEY = 'photo-downloader-settings';
+
 let selectedFile = null;
 let parsedRows = [];
 let jobId = null;
 let startedAt = 0;
 let pollTimer = null;
 let autoDownloaded = false;
+
+loadSavedSettings();
 
 chooseBtn.addEventListener('click', () => fileInput.click());
 
@@ -42,6 +46,17 @@ if (advancedSettings) {
     e.stopPropagation();
   });
 }
+
+[
+  refererInput,
+  timeoutInput,
+  retryInput,
+  concurrencyInput,
+  browserFallbackInput,
+].forEach((el) => {
+  el.addEventListener('change', saveCurrentSettings);
+  el.addEventListener('input', saveCurrentSettings);
+});
 
 fileInput.addEventListener('change', () => {
   if (fileInput.files && fileInput.files[0]) {
@@ -88,6 +103,8 @@ async function loadFile(file) {
   logWrap.textContent = 'Reading Excel file...';
   previewWrap.innerHTML = '<div class="small">Loading preview...</div>';
   runBtn.disabled = true;
+
+  saveCurrentSettings();
 
   try {
     const buffer = await file.arrayBuffer();
@@ -174,6 +191,8 @@ async function startUpload() {
   logWrap.textContent = 'Starting...';
   currentItemEl.textContent = '—';
   runBtn.disabled = true;
+
+  saveCurrentSettings();
 
   const payload = {
     fileName: selectedFile.name,
@@ -320,6 +339,36 @@ function formatDuration(sec) {
   const r = s % 60;
   if (m > 0) return `${m}m ${r}s`;
   return `${r}s`;
+}
+
+function loadSavedSettings() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}');
+
+    if (saved.refererInput !== undefined) refererInput.value = saved.refererInput;
+    if (saved.timeoutInput !== undefined) timeoutInput.value = saved.timeoutInput;
+    if (saved.retryInput !== undefined) retryInput.value = saved.retryInput;
+    if (saved.concurrencyInput !== undefined) concurrencyInput.value = saved.concurrencyInput;
+    if (saved.browserFallbackInput !== undefined) browserFallbackInput.checked = saved.browserFallbackInput;
+  } catch (err) {
+    console.warn('Could not load saved settings:', err);
+  }
+}
+
+function saveCurrentSettings() {
+  try {
+    const payload = {
+      refererInput: refererInput.value,
+      timeoutInput: timeoutInput.value,
+      retryInput: retryInput.value,
+      concurrencyInput: concurrencyInput.value,
+      browserFallbackInput: browserFallbackInput.checked,
+    };
+
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(payload));
+  } catch (err) {
+    console.warn('Could not save settings:', err);
+  }
 }
 
 function escapeHtml(str) {
