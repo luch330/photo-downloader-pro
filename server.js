@@ -1,11 +1,12 @@
 const path = require('path');
+const os = require('os');
 const fs = require('fs/promises');
+
 const express = require('express');
 const compression = require('compression');
 const helmet = require('helmet');
 const morgan = require('morgan');
 
-const { createJobStore } = require('./src/state');
 const { downloadImage } = require('./src/downloader');
 const { buildZip } = require('./src/zipBuilder');
 const {
@@ -14,18 +15,19 @@ const {
   sanitizeFileName,
   detectExtension,
   uniqueName,
-  sleep,
 } = require('./src/utils');
 
 const app = express();
-const store = createJobStore();
 const PORT = Number(process.env.PORT || 3000);
+
 const DEFAULT_SETTINGS = {
   timeoutMs: 45000,
   retries: 2,
   concurrency: 4,
   browserFallback: true,
 };
+
+const jobs = new Map();
 
 app.use(helmet({ contentSecurityPolicy: false }));
 app.use(compression());
@@ -55,18 +57,24 @@ app.post('/api/start', async (req, res) => {
       return res.status(400).json({ ok: false, message: 'Please upload a file with at least one header row.' });
     }
 
-    const job = await store.create({ fileName, rows, referer, settings });
+    const job = await createJob({
+      fileName,
+      rows,
+      referer,
+      settings,
+    });
+
     res.json({ ok: true, jobId: job.id });
 
     setImmediate(() => {
       processJob(job.id).catch((err) => {
-        store.update(job.id, {
+        updateJob(job.id, {
           status: 'error',
           error: err?.message || String(err),
           message: 'Processing failed.',
           updatedAt: Date.now(),
         });
-        store.log(job.id, `ERROR: ${err?.stack || err?.message || String(err)}`);
+        logJob(job.id, `ERROR: ${err?.stack || err?.message || String(err)}`);
       });
     });
   } catch (err) {
@@ -75,15 +83,15 @@ app.post('/api/start', async (req, res) => {
 });
 
 app.get('/api/status/:jobId', (req, res) => {
-  const job = store.snapshot(req.params.jobId);
-  if (!job) {
+  const snap = snapshotJob(req.params.jobId);
+  if (!snap) {
     return res.status(404).json({ ok: false, message: 'Job not found.' });
   }
-  res.json({ ok: true, ...job });
+  res.json({ ok: true, ...snap });
 });
 
 app.get('/api/download/:jobId', async (req, res) => {
-  const job = store.get(req.params.jobId);
+  const job = jobs.get(req.params.jobId);
   if (!job || !job.zipPath) {
     return res.status(404).send('Not ready');
   }
@@ -91,7 +99,7 @@ app.get('/api/download/:jobId', async (req, res) => {
   try {
     await fs.access(job.zipPath);
     res.download(job.zipPath, job.downloadName || path.basename(job.zipPath));
-  } catch (err) {
+  } catch {
     res.status(404).send('File not available');
   }
 });
@@ -104,23 +112,113 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`Photo downloader running on port ${PORT}`);
 });
 
-function clampInt(value, min, max, fallback) {
-  const n = Number.parseInt(value, 10);
-  if (!Number.isFinite(n)) return fallback;
-  return Math.min(max, Math.max(min, n));
+async function createJob({ fileName, rows, referer, settings }) {
+  const jobId = randomId();
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'photo-downloader-'));
+
+  const job = {
+    id: jobId,
+    fileName,
+    rows,
+    referer,
+    settings,
+    tempDir,
+
+    status: 'queued',
+    progress: 0,
+    total: 0,
+    done: 0,
+    ready: 0,
+    failed: 0,
+    current: '',
+    message: 'Waiting to start.',
+    error: null,
+
+    startedAt: Date.now(),
+    updatedAt: Date.now(),
+    zipPath: null,
+    downloadName: null,
+    zipSizeBytes: 0,
+    zipSizeText: '—',
+
+    preview: [],
+    logs: [],
+    failedRows: [],
+    errorSummary: makeEmptyErrorSummary(),
+    reportText: '',
+    failedCsv: '',
+    etaMs: 0,
+  };
+
+  jobs.set(jobId, job);
+  return job;
+}
+
+function updateJob(jobId, patch) {
+  const job = jobs.get(jobId);
+  if (!job) return;
+
+  Object.assign(job, patch, {
+    updatedAt: Date.now(),
+  });
+}
+
+function logJob(jobId, message) {
+  const job = jobs.get(jobId);
+  if (!job) return;
+
+  job.logs.push(String(message));
+  if (job.logs.length > 200) {
+    job.logs.splice(0, job.logs.length - 200);
+  }
+  job.updatedAt = Date.now();
+}
+
+function snapshotJob(jobId) {
+  const job = jobs.get(jobId);
+  if (!job) return null;
+
+  return {
+    jobId: job.id,
+    fileName: job.fileName,
+    status: job.status,
+    progress: job.progress,
+    total: job.total,
+    done: job.done,
+    ready: job.ready,
+    failed: job.failed,
+    current: job.current,
+    message: job.message,
+    error: job.error,
+    startedAt: job.startedAt,
+    updatedAt: job.updatedAt,
+    etaMs: job.etaMs,
+
+    preview: job.preview,
+    logs: job.logs.slice(-120),
+    failedRows: job.failedRows,
+    errorSummary: job.errorSummary,
+
+    downloadReady: Boolean(job.zipPath && job.status === 'done'),
+    downloadUrl: job.zipPath ? `/api/download/${job.id}` : null,
+    downloadName: job.downloadName,
+    zipSizeBytes: job.zipSizeBytes,
+    zipSizeText: job.zipSizeText,
+    reportText: job.reportText,
+    failedCsv: job.failedCsv,
+  };
 }
 
 async function processJob(jobId) {
-  const job = store.get(jobId);
+  const job = jobs.get(jobId);
   if (!job) return;
 
   const rows = Array.isArray(job.rows) ? job.rows : [];
   if (rows.length < 1) {
-    store.update(jobId, {
+    updateJob(jobId, {
       status: 'error',
       message: 'No rows found.',
       error: 'No rows found.',
-      updatedAt: Date.now(),
     });
     return;
   }
@@ -133,13 +231,12 @@ async function processJob(jobId) {
   });
 
   if (!dataRows.length) {
-    store.update(jobId, {
+    updateJob(jobId, {
       status: 'error',
       message: 'The file contains only a header row.',
       error: 'The file contains only a header row.',
       preview,
       total: 0,
-      updatedAt: Date.now(),
     });
     return;
   }
@@ -150,11 +247,12 @@ async function processJob(jobId) {
   const failedRows = [];
   const reportLines = [];
   const startedAt = Date.now();
+
   let done = 0;
   let ready = 0;
   let failed = 0;
 
-  store.update(jobId, {
+  updateJob(jobId, {
     status: 'processing',
     preview,
     total: dataRows.length,
@@ -165,7 +263,9 @@ async function processJob(jobId) {
     message: 'Processing started.',
     current: 'Preparing tasks...',
     startedAt,
-    updatedAt: Date.now(),
+    errorSummary: makeEmptyErrorSummary(),
+    failedRows: [],
+    etaMs: 0,
   });
 
   reportLines.push('Photo downloader report');
@@ -173,7 +273,9 @@ async function processJob(jobId) {
   reportLines.push(`Generated: ${new Date().toLocaleString()}`);
   reportLines.push(`Rows (excluding header): ${dataRows.length}`);
   reportLines.push(`Referer: ${job.referer || '(none)'}`);
-  reportLines.push(`Settings: timeout=${job.settings.timeoutMs}ms, retries=${job.settings.retries}, concurrency=${job.settings.concurrency}, browserFallback=${job.settings.browserFallback}`);
+  reportLines.push(
+    `Settings: timeout=${job.settings.timeoutMs}ms, retries=${job.settings.retries}, concurrency=${job.settings.concurrency}, browserFallback=${job.settings.browserFallback}`
+  );
   reportLines.push('');
   reportLines.push('Header row skipped automatically.');
   reportLines.push('');
@@ -184,15 +286,15 @@ async function processJob(jobId) {
     rowNumber: index + 2,
   }));
 
-  const concurrency = Math.min(job.settings.concurrency || 4, tasks.length);
+  const concurrency = Math.min(job.settings.concurrency || DEFAULT_SETTINGS.concurrency, tasks.length);
   let cursor = 0;
+
   const workers = Array.from({ length: concurrency }, async () => {
     while (true) {
       const current = cursor;
       cursor += 1;
       if (current >= tasks.length) return;
-      const task = tasks[current];
-      await processRowTask(task);
+      await processRowTask(tasks[current]);
     }
   });
 
@@ -219,7 +321,7 @@ async function processJob(jobId) {
 
   const zipStats = await fs.stat(zipPath);
 
-  store.update(jobId, {
+  updateJob(jobId, {
     status: 'done',
     progress: 100,
     done: dataRows.length,
@@ -233,9 +335,12 @@ async function processJob(jobId) {
     zipSizeText: formatBytes(zipStats.size),
     reportText,
     failedCsv,
-    updatedAt: Date.now(),
+    failedRows,
+    errorSummary: summarizeFailures(failedRows),
+    etaMs: 0,
   });
-  store.log(jobId, `ZIP ready: ${zipName} (${formatBytes(zipStats.size)})`);
+
+  logJob(jobId, `ZIP ready: ${zipName} (${formatBytes(zipStats.size)})`);
 
   async function processRowTask(task) {
     const row = task.row || [];
@@ -249,18 +354,20 @@ async function processJob(jobId) {
       return;
     }
 
-    store.update(jobId, {
+    updateJob(jobId, {
       current: itemName || imageUrl || `Row ${rowNumber}`,
       message: `Downloading row ${rowNumber}...`,
-      updatedAt: Date.now(),
     });
-    store.log(jobId, `Downloading row ${rowNumber}: ${itemName || '(empty)'}`);
+    logJob(jobId, `Downloading row ${rowNumber}: ${itemName || '(empty)'}`);
 
     if (!itemName || !imageUrl) {
       const error = 'missing item name or URL';
       failed += 1;
-      failedRows.push([rowNumber, itemName, imageUrl, error, '']);
+      const record = makeFailedRow(rowNumber, itemName, imageUrl, error, '');
+      failedRows.push(record);
       reportLines.push(`FAIL | Row ${rowNumber}: ${itemName || '(empty)'} -> ${error}`);
+      logJob(jobId, `FAIL: ${itemName || '(empty)'} -> ${error}`);
+
       done += 1;
       updateProgress(`Failed row ${rowNumber}`);
       return;
@@ -293,15 +400,17 @@ async function processJob(jobId) {
         imageUrl,
         method: result.method,
       });
+
       ready += 1;
       reportLines.push(`OK   | ${rowNumber} | ${itemName} | ${filename} | ${result.method}`);
-      store.log(jobId, `OK: ${itemName} -> ${filename} (${result.method})`);
+      logJob(jobId, `OK: ${itemName} -> ${filename} (${result.method})`);
     } catch (err) {
       failed += 1;
       const error = err?.message || String(err);
-      failedRows.push([rowNumber, itemName, imageUrl, error, '']);
+      const record = makeFailedRow(rowNumber, itemName, imageUrl, error, '');
+      failedRows.push(record);
       reportLines.push(`FAIL | Row ${rowNumber}: ${itemName} -> ${error}`);
-      store.log(jobId, `FAIL: ${itemName} -> ${error}`);
+      logJob(jobId, `FAIL: ${itemName} -> ${error}`);
     }
 
     done += 1;
@@ -311,22 +420,108 @@ async function processJob(jobId) {
   function updateProgress(currentLabel) {
     const progress = dataRows.length ? Math.round((done / dataRows.length) * 100) : 0;
     const elapsed = Date.now() - startedAt;
-    const eta = progress > 0 && progress < 100 ? Math.round((elapsed * (100 - progress)) / progress) : 0;
-    store.update(jobId, {
+    const etaMs = progress > 0 && progress < 100 ? Math.round((elapsed * (100 - progress)) / progress) : 0;
+
+    updateJob(jobId, {
       done,
       ready,
       failed,
       progress,
       current: currentLabel,
-      etaMs: eta,
-      updatedAt: Date.now(),
+      etaMs,
     });
   }
 }
 
+function makeFailedRow(rowNumber, itemName, imageUrl, error, method) {
+  return {
+    rowNumber: Number(rowNumber || 0),
+    itemName: String(itemName || ''),
+    imageUrl: String(imageUrl || ''),
+    error: String(error || ''),
+    method: String(method || ''),
+    errorType: categorizeError(String(error || '')),
+  };
+}
+
+function summarizeFailures(failedRows) {
+  const summary = makeEmptyErrorSummary();
+
+  failedRows.forEach((row) => {
+    summary.total += 1;
+    const type = row?.errorType || categorizeError(row?.error || '');
+    if (type === 'forbidden') summary.forbidden += 1;
+    else if (type === 'unauthorized') summary.unauthorized += 1;
+    else if (type === 'notFound') summary.notFound += 1;
+    else if (type === 'timeout') summary.timeout += 1;
+    else if (type === 'nonImage') summary.nonImage += 1;
+    else summary.other += 1;
+  });
+
+  return summary;
+}
+
+function makeEmptyErrorSummary() {
+  return {
+    total: 0,
+    forbidden: 0,
+    unauthorized: 0,
+    notFound: 0,
+    timeout: 0,
+    nonImage: 0,
+    other: 0,
+  };
+}
+
+function categorizeError(errorText) {
+  const text = String(errorText || '').toLowerCase();
+
+  if (text.includes('403') || text.includes('forbidden')) return 'forbidden';
+  if (text.includes('401') || text.includes('unauthorized')) return 'unauthorized';
+  if (text.includes('404') || text.includes('not found')) return 'notFound';
+  if (text.includes('timeout') || text.includes('timed out') || text.includes('etimedout') || text.includes('aborted')) return 'timeout';
+  if (
+    text.includes('non-image') ||
+    text.includes('unsupported content type') ||
+    text.includes('blocked content type') ||
+    text.includes('text/html') ||
+    text.includes('html response') ||
+    text.includes('image not found')
+  ) {
+    return 'nonImage';
+  }
+
+  return 'other';
+}
+
 function createFailedRowsCsv(rows) {
   const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
-  const lines = [['Excel row', 'Item name', 'URL', 'Error', 'Method']];
-  for (const row of rows) lines.push(row);
+  const lines = [['Excel row', 'Item name', 'URL', 'Error', 'Method', 'Error type']];
+
+  rows.forEach((row) => {
+    lines.push([
+      row.rowNumber,
+      row.itemName,
+      row.imageUrl,
+      row.error,
+      row.method || '',
+      row.errorType || '',
+    ]);
+  });
+
   return lines.map((r) => r.map(esc).join(',')).join('\n');
+}
+
+function clampInt(value, min, max, fallback) {
+  const n = Number.parseInt(value, 10);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(max, Math.max(min, n));
+}
+
+function randomId() {
+  try {
+    return crypto.randomUUID();
+  } catch {
+    return `${Date.now()}_${Math.random().toString(16).slice(2)}`;
+  }
 }
