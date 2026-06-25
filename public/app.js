@@ -149,7 +149,7 @@ dropzone.addEventListener('drop', (e) => {
   runBtn.disabled = false;
 });
 
-runBtn.addEventListener('click', startUpload);
+runBtn.addEventListener('click', () => startUpload());
 retryFailedBtn.addEventListener('click', retryFailed);
 successRetryBtn.addEventListener('click', retryFailed);
 viewErrorsBtn.addEventListener('click', () => {
@@ -161,6 +161,7 @@ closeSuccessBtn.addEventListener('click', closeSuccess);
 successScreen.addEventListener('click', (e) => {
   if (e.target === successScreen) closeSuccess();
 });
+
 settingsModal.addEventListener('click', (e) => {
   if (e.target === settingsModal) closeSettings();
 });
@@ -173,6 +174,7 @@ resetSettingsBtn.addEventListener('click', () => {
   applyMode('balanced', true);
   saveCurrentSettings();
 });
+
 modeCards.forEach((btn) => {
   btn.addEventListener('click', () => {
     const mode = btn.dataset.mode;
@@ -200,6 +202,7 @@ modeCards.forEach((btn) => {
 
 document.addEventListener('keydown', (e) => {
   const mod = e.metaKey || e.ctrlKey;
+
   if (mod && e.key.toLowerCase() === 'o') {
     e.preventDefault();
     fileInput.click();
@@ -226,7 +229,7 @@ document.addEventListener('keydown', (e) => {
 function openSettings() {
   settingsModal.hidden = false;
   document.body.style.overflow = 'hidden';
-  setTimeout(() => refererInput.focus(), 30);
+  window.setTimeout(() => refererInput.focus(), 30);
 }
 
 function closeSettings() {
@@ -245,13 +248,14 @@ function closeSuccess() {
 }
 
 function toggleTheme() {
-  const isDark = !document.body.classList.contains('theme-dark');
+  const isDark = !document.documentElement.classList.contains('theme-dark');
   setTheme(isDark);
   saveTheme();
 }
 
 function setTheme(isDark) {
-  document.body.classList.toggle('theme-dark', isDark);
+  document.documentElement.classList.toggle('theme-dark', isDark);
+  document.documentElement.style.colorScheme = isDark ? 'dark' : 'light';
   themeBtn.textContent = isDark ? '☀ Light mode' : '🌙 Dark mode';
 }
 
@@ -276,7 +280,7 @@ function loadTheme() {
 
 function saveTheme() {
   try {
-    localStorage.setItem(THEME_KEY, document.body.classList.contains('theme-dark') ? 'dark' : 'light');
+    localStorage.setItem(THEME_KEY, document.documentElement.classList.contains('theme-dark') ? 'dark' : 'light');
   } catch (err) {
     console.warn('Could not save theme:', err);
   }
@@ -375,7 +379,6 @@ function updateModeUI() {
         : 'Manual edits will switch the mode to Custom automatically.';
   }
 }
-
 async function loadFile(file) {
   selectedFile = file;
   fileNameEl.textContent = file.name;
@@ -481,8 +484,9 @@ function renderPreview(rows) {
   previewWrap.innerHTML = html;
 }
 
-async function startUpload() {
-  if (!selectedFile || !parsedRows.length) return;
+async function startUpload(rowsOverride = null) {
+  const rowsToUse = Array.isArray(rowsOverride) && rowsOverride.length ? rowsOverride : parsedRows;
+  if (!selectedFile || !rowsToUse.length) return;
 
   autoDownloaded = false;
   jobId = null;
@@ -493,19 +497,20 @@ async function startUpload() {
   downloadBtn.href = '#';
   successDownloadBtn.href = '#';
   successScreen.hidden = true;
+  retryFailedBtn.disabled = true;
+  successRetryBtn.style.display = 'none';
   setStatus('Uploading and processing...', 'info');
   setProgress(5, 'Uploading...');
   logWrap.textContent = 'Starting...';
   currentItemEl.textContent = '—';
-  retryFailedBtn.disabled = true;
-  successRetryBtn.style.display = 'none';
+  estimatedFinishEl.textContent = '—';
   runBtn.disabled = true;
 
   saveCurrentSettings();
 
   const payload = {
     fileName: selectedFile.name,
-    rows: parsedRows,
+    rows: rowsToUse,
     referer: refererInput.value.trim(),
     settings: {
       timeoutMs: Number(timeoutInput.value || 45) * 1000,
@@ -586,7 +591,7 @@ function pollStatus() {
         return;
       }
 
-      pollTimer = setTimeout(pollStatus, 1000);
+      pollTimer = window.setTimeout(pollStatus, 1000);
     })
     .catch((err) => {
       setStatus('Status error: ' + err.message, 'error');
@@ -607,12 +612,10 @@ function renderStatus(data) {
   const total = Number(data.total || 0);
   setProgress(progress, `Downloading ${done} / ${total}`);
 
-  if (startedAt && progress > 0 && progress < 100) {
-    const elapsed = (Date.now() - startedAt) / 1000;
-    const remaining = (elapsed * (100 - progress)) / progress;
-    const remainingMs = Math.max(0, Math.round(remaining * 1000));
-    etaText.textContent = 'ETA: ' + formatDuration(remaining);
-    estimatedFinishEl.textContent = formatClockTime(Date.now() + remainingMs);
+  if (progress > 0 && progress < 100) {
+    const etaMs = Number(data.etaMs || 0);
+    etaText.textContent = 'ETA: ' + (etaMs > 0 ? formatDuration(etaMs / 1000) : '—');
+    estimatedFinishEl.textContent = etaMs > 0 ? formatClockTime(Date.now() + etaMs) : '—';
   } else if (progress >= 100) {
     etaText.textContent = 'ETA: done';
     estimatedFinishEl.textContent = formatClockTime(Date.now());
@@ -634,7 +637,7 @@ function renderStatus(data) {
     zipSizeEl.textContent = data.zipSizeText || data.downloadName || 'ready';
   }
 
-  const summary = deriveErrorSummary(data);
+  const summary = data.errorSummary || deriveErrorSummary(data);
   lastErrorSummary = summary;
   renderErrorSummary(summary);
 
@@ -648,6 +651,20 @@ function renderStatus(data) {
   }
 }
 
+function renderPreviewTable(rows) {
+  const visible = rows.slice(0, 6);
+  if (!visible.length) return '<div class="small">No preview rows available.</div>';
+
+  let html = '<table class="preview-table"><tbody>';
+  visible.forEach((r, idx) => {
+    const a = escapeHtml(r[0] || '');
+    const b = escapeHtml(r[1] || '');
+    if (idx === 0) html += '<tr><th>' + a + '</th><th>' + b + '</th></tr>';
+    else html += '<tr><td>' + a + '</td><td class="preview-url">' + b + '</td></tr>';
+  });
+  html += '</tbody></table>';
+  return html;
+}
 function renderErrorSummary(summary) {
   if (!summary || summary.total === 0) {
     errorSummaryGrid.innerHTML = '<div class="summary-empty">No error summary yet.</div>';
@@ -689,10 +706,11 @@ function retryFailed() {
 
   parsedRows = retryRows;
   rowsCountEl.textContent = String(retryRows.length - 1);
+  renderPreview(retryRows);
   runBtn.disabled = false;
   closeSuccess();
   setStatus('Retrying only the failed rows...', 'info');
-  startUpload();
+  startUpload(retryRows);
 }
 
 function buildRetryRows(failedRows) {
@@ -726,6 +744,7 @@ function normalizeFailedRows(rows) {
           imageUrl: String(row[2] || ''),
           error: String(row[3] || ''),
           method: String(row[4] || ''),
+          errorType: String(row[5] || ''),
         };
       }
 
@@ -736,6 +755,7 @@ function normalizeFailedRows(rows) {
           imageUrl: String(row.imageUrl || row.url || ''),
           error: String(row.error || row.message || ''),
           method: String(row.method || ''),
+          errorType: String(row.errorType || ''),
         };
       }
 
@@ -745,76 +765,18 @@ function normalizeFailedRows(rows) {
 }
 
 function deriveErrorSummary(data) {
-  const lines = [];
+  const rows = normalizeFailedRows(data?.failedRows || []);
+  const summary = makeEmptyErrorSummary();
 
-  if (Array.isArray(data?.logs)) lines.push(...data.logs);
-  if (Array.isArray(data?.failedRows)) {
-    data.failedRows.forEach((row) => {
-      if (Array.isArray(row)) {
-        lines.push(`Row ${row[0] || ''}: ${row[3] || ''}`);
-      } else if (row && typeof row === 'object') {
-        lines.push(`Row ${row.rowNumber || row.excelRow || row.row || ''}: ${row.error || row.message || ''}`);
-      }
-    });
-  }
-
-  if (!lines.length && Number(data?.failed || 0) === 0) {
-    return {
-      total: 0,
-      forbidden: 0,
-      unauthorized: 0,
-      notFound: 0,
-      timeout: 0,
-      nonImage: 0,
-      other: 0,
-    };
-  }
-
-  const summary = {
-    total: 0,
-    forbidden: 0,
-    unauthorized: 0,
-    notFound: 0,
-    timeout: 0,
-    nonImage: 0,
-    other: 0,
-  };
-
-  const seen = lines.filter(Boolean);
-  seen.forEach((line) => {
-    const text = String(line).toLowerCase();
-    if (!text.includes('fail') && !text.includes('error') && !/\b403\b|\b401\b|\b404\b|timeout|html|non-image|blocked|forbidden|not found/.test(text)) {
-      return;
-    }
-
+  rows.forEach((row) => {
     summary.total += 1;
-
-    if (/\b403\b|forbidden/.test(text)) {
-      summary.forbidden += 1;
-      return;
-    }
-
-    if (/\b401\b|unauthorized/.test(text)) {
-      summary.unauthorized += 1;
-      return;
-    }
-
-    if (/\b404\b|not found/.test(text)) {
-      summary.notFound += 1;
-      return;
-    }
-
-    if (/timeout|timed out|etimedout|aborted/.test(text)) {
-      summary.timeout += 1;
-      return;
-    }
-
-    if (/non-image|unsupported content type|blocked content type|text\/html|html response|image not found/.test(text)) {
-      summary.nonImage += 1;
-      return;
-    }
-
-    summary.other += 1;
+    const type = row.errorType || categorizeError(row.error || '');
+    if (type === 'forbidden') summary.forbidden += 1;
+    else if (type === 'unauthorized') summary.unauthorized += 1;
+    else if (type === 'notFound') summary.notFound += 1;
+    else if (type === 'timeout') summary.timeout += 1;
+    else if (type === 'nonImage') summary.nonImage += 1;
+    else summary.other += 1;
   });
 
   if (!summary.total && Number(data?.failed || 0) > 0) {
@@ -825,17 +787,50 @@ function deriveErrorSummary(data) {
   return summary;
 }
 
+function makeEmptyErrorSummary() {
+  return {
+    total: 0,
+    forbidden: 0,
+    unauthorized: 0,
+    notFound: 0,
+    timeout: 0,
+    nonImage: 0,
+    other: 0,
+  };
+}
+
+function categorizeError(errorText) {
+  const text = String(errorText || '').toLowerCase();
+
+  if (text.includes('403') || text.includes('forbidden')) return 'forbidden';
+  if (text.includes('401') || text.includes('unauthorized')) return 'unauthorized';
+  if (text.includes('404') || text.includes('not found')) return 'notFound';
+  if (text.includes('timeout') || text.includes('timed out') || text.includes('etimedout') || text.includes('aborted')) return 'timeout';
+  if (
+    text.includes('non-image') ||
+    text.includes('unsupported content type') ||
+    text.includes('blocked content type') ||
+    text.includes('text/html') ||
+    text.includes('html response') ||
+    text.includes('image not found')
+  ) {
+    return 'nonImage';
+  }
+
+  return 'other';
+}
+
 function detectColumnMapping(raw) {
   const rows = Array.isArray(raw) ? raw : [];
   const headers = (rows[0] || []).map((v) => String(v || '').trim());
   const width = rows.reduce((max, row) => Math.max(max, Array.isArray(row) ? row.length : 0), headers.length);
 
   const nameAliases = [
-    'item name', 'product name', 'product', 'name', 'title', 'article', 'article name', 'sku', 'variant', 'item'
+    'item name', 'product name', 'product', 'name', 'title', 'article', 'article name', 'sku', 'variant', 'item',
   ];
   const urlAliases = [
     'image url', 'image', 'image link', 'photo url', 'photo', 'picture', 'picture url',
-    'url', 'link', 'src', 'image src', 'picture link'
+    'url', 'link', 'src', 'image src', 'picture link',
   ];
 
   const nameScores = Array.from({ length: width }, (_, col) => scoreNameCol(rows, headers, col, nameAliases));
@@ -884,7 +879,7 @@ function scoreUrlCol(rows, headers, col, aliases) {
     const value = String(row?.[col] || '').trim();
     if (!value) return;
     if (looksLikeUrl(value)) score += 3;
-    if (/\.(jpg|jpeg|png|webp|gif|bmp|tiff|svg)(\?|#|$)/i.test(value)) score += 2;
+    if (/\.(jpg|jpeg|png|webp|gif|bmp|tiff|svg|avif|heic|heif)(\?|#|$)/i.test(value)) score += 2;
   });
 
   return score;
@@ -911,7 +906,7 @@ function normalizeRows(raw, mapping) {
 
 function looksLikeUrl(value) {
   const text = String(value || '').trim().toLowerCase();
-  return /^https?:\/\//.test(text) || text.includes('www.') || /\.(jpg|jpeg|png|webp|gif|bmp|tiff|svg)(\?|#|$)/.test(text);
+  return /^https?:\/\//.test(text) || text.includes('www.') || /\.(jpg|jpeg|png|webp|gif|bmp|tiff|svg|avif|heic|heif)(\?|#|$)/.test(text);
 }
 
 function maxIndex(arr) {
@@ -930,11 +925,13 @@ function indexToLetter(index) {
   const n = Number(index || 0);
   let result = '';
   let x = n + 1;
+
   while (x > 0) {
     const rem = (x - 1) % 26;
     result = String.fromCharCode(65 + rem) + result;
     x = Math.floor((x - 1) / 26);
   }
+
   return result || 'A';
 }
 
@@ -951,8 +948,8 @@ function setProgress(value, label) {
   progressText.textContent = label || (v + '%');
 }
 
-function formatDuration(sec) {
-  const s = Math.max(0, Math.round(sec));
+function formatDuration(seconds) {
+  const s = Math.max(0, Math.round(seconds));
   const m = Math.floor(s / 60);
   const r = s % 60;
   if (m > 0) return `${m}m ${r}s`;
