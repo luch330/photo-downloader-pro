@@ -4,8 +4,7 @@
   "description": "Wolt-inspired photo downloader for Excel catalogs with ZIP export and partner-site fallback download methods.",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js",
-    "postinstall": "playwright install chromium"
+    "start": "node server.js"
   },
   "dependencies": {
     "archiver": "^7.0.1",
@@ -13,7 +12,6 @@
     "express": "^4.21.2",
     "helmet": "^8.0.0",
     "morgan": "^1.10.0",
-    "playwright": "^1.55.0",
     "sharp": "^0.35.2"
   },
   "engines": {
