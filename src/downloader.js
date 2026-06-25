@@ -1,15 +1,10 @@
 const { Buffer } = require('buffer');
 const { normalizeImage } = require('./imageProcessor');
 
-let chromium = null;
-try {
-  ({ chromium } = require('playwright'));
-} catch {
-  chromium = null;
-}
-
 const DEFAULT_TIMEOUT_MS = 45000;
 const DEFAULT_RETRIES = 2;
+const DEFAULT_MAX_SIDE = 3000;
+const DEFAULT_QUALITY = 92;
 
 const UA =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
@@ -26,9 +21,8 @@ async function downloadImage(url, options = {}) {
   const referer = String(options.referer || '').trim();
   const timeoutMs = clampInt(options.timeoutMs, 3000, 180000, DEFAULT_TIMEOUT_MS);
   const retries = clampInt(options.retries, 0, 5, DEFAULT_RETRIES);
-  const browserFallback = options.browserFallback !== false;
-  const maxSide = clampInt(options.maxSide, 256, 8000, 3000);
-  const quality = clampInt(options.quality, 50, 100, 92);
+  const maxSide = clampInt(options.maxSide, 256, 8000, DEFAULT_MAX_SIDE);
+  const quality = clampInt(options.quality, 50, 100, DEFAULT_QUALITY);
 
   if (isDataUrl(inputUrl)) {
     const decoded = decodeDataUrl(inputUrl);
@@ -43,7 +37,7 @@ async function downloadImage(url, options = {}) {
       buffer: normalized.buffer,
       contentType: normalized.contentType,
       finalUrl: decoded.finalUrl,
-      method: normalized.method,
+      method: `data-url-${normalized.method}`,
     };
   }
 
@@ -101,29 +95,6 @@ async function downloadImage(url, options = {}) {
     }
   }
 
-  if (browserFallback && chromium) {
-    const browserResult = await tryBrowserFallback(inputUrl, {
-      referer,
-      timeoutMs,
-    });
-
-    if (browserResult?.buffer && looksLikeImage(browserResult.buffer, browserResult.contentType)) {
-      const normalized = await normalizeImage(browserResult.buffer, {
-        contentType: browserResult.contentType,
-        sourceUrl: browserResult.finalUrl || inputUrl,
-        maxSide,
-        quality,
-      });
-
-      return {
-        buffer: normalized.buffer,
-        contentType: normalized.contentType,
-        finalUrl: browserResult.finalUrl,
-        method: `browser-${normalized.method}`,
-      };
-    }
-  }
-
   if (direct?.buffer && direct.buffer.length && looksLikeImage(direct.buffer, direct.contentType)) {
     const normalized = await normalizeImage(direct.buffer, {
       contentType: direct.contentType,
@@ -136,7 +107,7 @@ async function downloadImage(url, options = {}) {
       buffer: normalized.buffer,
       contentType: normalized.contentType,
       finalUrl: direct.finalUrl || inputUrl,
-      method: `direct-heuristic-${normalized.method}`,
+      method: `heuristic-${normalized.method}`,
     };
   }
 
@@ -210,168 +181,6 @@ async function fetchOnce(url, { referer, timeoutMs }) {
     clearTimeout(timer);
   }
 }
-
-async function tryBrowserFallback(url, { referer, timeoutMs }) {
-  const browser = await chromium.launch({ headless: true });
-
-  try {
-    const context = await browser.newContext({
-      userAgent: UA,
-      locale: 'en-US',
-      viewport: { width: 1400, height: 1000 },
-      extraHTTPHeaders: {
-        Accept: ACCEPT,
-        'Accept-Language': LANG,
-        'Cache-Control': 'no-cache',
-        Pragma: 'no-cache',
-      },
-    });
-
-    const page = await context.newPage();
-
-    if (referer) {
-      await page.goto(url, {
-        waitUntil: 'domcontentloaded',
-        timeout: timeoutMs,
-        referer,
-      });
-    } else {
-      await page.goto(url, {
-        waitUntil: 'domcontentloaded',
-        timeout: timeoutMs,
-      });
-    }
-
-    await page.waitForTimeout(800);
-
-    const candidates = await page.evaluate(() => {
-      const out = [];
-      const push = (value) => {
-        if (!value) return;
-        const v = String(value).trim();
-        if (!v) return;
-        out.push(v);
-      };
-
-      const metaSelectors = [
-        'meta[property="og:image"]',
-        'meta[property="og:image:url"]',
-        'meta[name="og:image"]',
-        'meta[name="twitter:image"]',
-        'meta[property="twitter:image"]',
-        'meta[property="og:image:secure_url"]',
-        'meta[name="twitter:image:src"]',
-      ];
-
-      metaSelectors.forEach((sel) => {
-        document.querySelectorAll(sel).forEach((el) => {
-          push(el.getAttribute('content'));
-        });
-      });
-
-      document.querySelectorAll('link[rel~="image_src"]').forEach((el) => {
-        push(el.getAttribute('href'));
-      });
-
-      document.querySelectorAll('img').forEach((img) => {
-        push(img.currentSrc);
-        push(img.src);
-        push(img.getAttribute('data-src'));
-        push(img.getAttribute('data-lazy-src'));
-        push(img.getAttribute('data-original'));
-
-        const srcset = img.getAttribute('srcset');
-        if (srcset) {
-          const parts = srcset.split(',').map((s) => s.trim().split(' ')[0]).filter(Boolean);
-          parts.forEach(push);
-        }
-      });
-
-      document.querySelectorAll('source').forEach((source) => {
-        const srcset = source.getAttribute('srcset');
-        if (srcset) {
-          const parts = srcset.split(',').map((s) => s.trim().split(' ')[0]).filter(Boolean);
-          parts.forEach(push);
-        }
-        push(source.getAttribute('src'));
-      });
-
-      document.querySelectorAll('[style]').forEach((node) => {
-        const style = node.getAttribute('style') || '';
-        const matches = style.match(/url\((['"]?)([^'")]+)\1\)/gi);
-        if (matches) {
-          matches.forEach((m) => {
-            const inner = m.replace(/^url\((['"]?)/i, '').replace(/(['"]?)\)$/i, '');
-            push(inner);
-          });
-        }
-      });
-
-      document.querySelectorAll('script[type="application/ld+json"]').forEach((script) => {
-        const txt = script.textContent || '';
-        const matches = txt.match(/https?:\/\/[^"'\\\s>]+?\.(?:jpg|jpeg|png|webp|gif|bmp|svg|avif|heic|heif)(?:\?[^"'\\\s>]*)?/gi);
-        if (matches) matches.forEach(push);
-      });
-
-      return Array.from(new Set(out));
-    });
-
-    for (const candidate of candidates) {
-      try {
-        const resolved = resolveUrl(candidate, page.url());
-        const result = await fetchOnce(resolved, {
-          referer: page.url(),
-          timeoutMs,
-        });
-
-        if (result?.buffer && looksLikeImage(result.buffer, result.contentType)) {
-          await browser.close();
-          return {
-            buffer: result.buffer,
-            contentType: result.contentType,
-            finalUrl: result.finalUrl,
-            method: 'browser-dom',
-          };
-        }
-      } catch {
-        // continue
-      }
-    }
-
-    const finalPageUrl = page.url();
-    if (finalPageUrl && finalPageUrl !== url) {
-      try {
-        const result = await fetchOnce(finalPageUrl, {
-          referer: page.url(),
-          timeoutMs,
-        });
-
-        if (result?.buffer && looksLikeImage(result.buffer, result.contentType)) {
-          await browser.close();
-          return {
-            buffer: result.buffer,
-            contentType: result.contentType,
-            finalUrl: result.finalUrl,
-            method: 'browser-final-url',
-          };
-        }
-      } catch {
-        // ignore
-      }
-    }
-
-    await browser.close();
-    return null;
-  } catch {
-    try {
-      await browser.close();
-    } catch {
-      // ignore
-    }
-    return null;
-  }
-}
-
 function extractImageCandidates(html, baseUrl) {
   const candidates = [];
   const add = (value) => {
@@ -381,7 +190,7 @@ function extractImageCandidates(html, baseUrl) {
     candidates.push(resolveUrl(v, baseUrl));
   };
 
-  const attrs = [
+  const attrRegexes = [
     /<meta[^>]+property=["']og:image(?:\:url)?["'][^>]+content=["']([^"']+)["'][^>]*>/gi,
     /<meta[^>]+name=["']og:image["'][^>]+content=["']([^"']+)["'][^>]*>/gi,
     /<meta[^>]+property=["']twitter:image["'][^>]+content=["']([^"']+)["'][^>]*>/gi,
@@ -389,7 +198,26 @@ function extractImageCandidates(html, baseUrl) {
     /<link[^>]+rel=["'][^"']*image_src[^"']*["'][^>]+href=["']([^"']+)["'][^>]*>/gi,
   ];
 
-  attrs.forEach((regex) => {
+  attrRegexes.forEach((regex) => {
+    let match;
+    while ((match = regex.exec(html))) {
+      add(match[1]);
+    }
+  });
+
+  const imgRegex = /<img[^>]+src=["']([^"']+)["'][^>]*>/gi;
+  let imgMatch;
+  while ((imgMatch = imgRegex.exec(html))) {
+    add(imgMatch[1]);
+  }
+
+  const lazyRegexes = [
+    /data-src=["']([^"']+)["']/gi,
+    /data-lazy-src=["']([^"']+)["']/gi,
+    /data-original=["']([^"']+)["']/gi,
+  ];
+
+  lazyRegexes.forEach((regex) => {
     let match;
     while ((match = regex.exec(html))) {
       add(match[1]);
@@ -399,28 +227,18 @@ function extractImageCandidates(html, baseUrl) {
   const srcsetRegex = /srcset=["']([^"']+)["']/gi;
   let srcsetMatch;
   while ((srcsetMatch = srcsetRegex.exec(html))) {
-    const parts = String(srcsetMatch[1]).split(',').map((s) => s.trim().split(' ')[0]).filter(Boolean);
+    const parts = String(srcsetMatch[1])
+      .split(',')
+      .map((s) => s.trim().split(' ')[0])
+      .filter(Boolean);
     parts.forEach(add);
   }
 
-  const imgRegex = /<img[^>]+src=["']([^"']+)["'][^>]*>/gi;
-  let imgMatch;
-  while ((imgMatch = imgRegex.exec(html))) {
-    add(imgMatch[1]);
+  const sourceRegex = /<source[^>]+src=["']([^"']+)["'][^>]*>/gi;
+  let sourceMatch;
+  while ((sourceMatch = sourceRegex.exec(html))) {
+    add(sourceMatch[1]);
   }
-
-  const lazyAttrs = [
-    /data-src=["']([^"']+)["']/gi,
-    /data-lazy-src=["']([^"']+)["']/gi,
-    /data-original=["']([^"']+)["']/gi,
-  ];
-
-  lazyAttrs.forEach((regex) => {
-    let match;
-    while ((match = regex.exec(html))) {
-      add(match[1]);
-    }
-  });
 
   const bgRegex = /background-image\s*:\s*url\((['"]?)([^'")]+)\1\)/gi;
   let bgMatch;
@@ -428,7 +246,7 @@ function extractImageCandidates(html, baseUrl) {
     add(bgMatch[2]);
   }
 
-  const urlRegex = /https?:\/\/[^"'\\\s>]+?\.(?:jpg|jpeg|png|webp|gif|bmp|svg|avif|heic|heif)(?:\?[^"'\\\s>]*)?/gi;
+  const urlRegex = /https?:\/\/[^"'\\\s>]+?\.(?:jpg|jpeg|png|webp|gif|bmp|svg|avif|heic|heif|tiff?)(?:\?[^"'\\\s>]*)?/gi;
   let urlMatch;
   while ((urlMatch = urlRegex.exec(html))) {
     add(urlMatch[0]);
@@ -458,7 +276,6 @@ function decodeDataUrl(dataUrl) {
     buffer,
     contentType,
     finalUrl: dataUrl,
-    method: 'data-url',
   };
 }
 
@@ -472,7 +289,11 @@ function looksLikeHtml(contentType, bufferOrText) {
     ? bufferOrText.toString('utf8', 0, Math.min(bufferOrText.length, 1024)).toLowerCase()
     : String(bufferOrText || '').toLowerCase();
 
-  return ct.includes('text/html') || ct.includes('application/xhtml') || /<!doctype html|<html|<head|<meta|<body/i.test(txt);
+  return (
+    ct.includes('text/html') ||
+    ct.includes('application/xhtml') ||
+    /<!doctype html|<html|<head|<meta|<body/i.test(txt)
+  );
 }
 
 function looksLikeTextResponse(contentType, buffer) {
@@ -529,7 +350,6 @@ function resolveUrl(candidate, baseUrl) {
     return value;
   }
 }
-
 function normalizeError(err) {
   const message = String(err?.message || err || 'download failed').toLowerCase();
 
