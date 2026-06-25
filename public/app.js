@@ -20,6 +20,7 @@ const previewWrap = document.getElementById('previewWrap');
 const logWrap = document.getElementById('logWrap');
 const statusEl = document.getElementById('status');
 const downloadBtn = document.getElementById('downloadBtn');
+const advancedSettings = document.querySelector('.advanced-settings');
 
 let selectedFile = null;
 let parsedRows = [];
@@ -31,9 +32,16 @@ let autoDownloaded = false;
 chooseBtn.addEventListener('click', () => fileInput.click());
 
 dropzone.addEventListener('click', (e) => {
-  if (e.target === runBtn || e.target === chooseBtn) return;
+  const interactive = e.target.closest('button, input, select, textarea, label, summary, a');
+  if (interactive) return;
   fileInput.click();
 });
+
+if (advancedSettings) {
+  advancedSettings.addEventListener('click', (e) => {
+    e.stopPropagation();
+  });
+}
 
 fileInput.addEventListener('change', () => {
   if (fileInput.files && fileInput.files[0]) {
@@ -105,7 +113,10 @@ async function loadFile(file) {
       return;
     }
 
-    setStatus('File loaded. Първият ред се използва като заглавие. Качи файла, а ние ще се погрижим за останалото.', 'success');
+    setStatus(
+      'File loaded. Първият ред се използва като заглавие. Качи файла, а ние ще се погрижим за останалото.',
+      'success'
+    );
     runBtn.disabled = false;
   } catch (err) {
     parsedRows = [];
@@ -125,14 +136,28 @@ function renderPreview(rows) {
   }
 
   const header = visible[0];
-  let html = '<table class="preview-table"><thead><tr><th>' + escapeHtml(header[0] || 'Item') + '</th><th>' + escapeHtml(header[1] || 'URL') + '</th></tr></thead><tbody>';
+  let html =
+    '<table class="preview-table"><thead><tr><th>' +
+    escapeHtml(header[0] || 'Item') +
+    '</th><th>' +
+    escapeHtml(header[1] || 'URL') +
+    '</th></tr></thead><tbody>';
+
   visible.slice(1).forEach((r) => {
-    html += '<tr><td>' + escapeHtml(r[0] || '') + '</td><td class="preview-url">' + escapeHtml(r[1] || '') + '</td></tr>';
+    html +=
+      '<tr><td>' +
+      escapeHtml(r[0] || '') +
+      '</td><td class="preview-url">' +
+      escapeHtml(r[1] || '') +
+      '</td></tr>';
   });
+
   html += '</tbody></table>';
+
   if (rows.length > 6) {
     html += '<div class="small" style="margin-top:8px;">Showing the first 5 rows after the header.</div>';
   }
+
   previewWrap.innerHTML = html;
 }
 
@@ -168,6 +193,7 @@ async function startUpload() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
+
     const data = await res.json();
     if (!res.ok || !data.ok) throw new Error(data.message || 'Upload failed');
 
@@ -182,6 +208,7 @@ async function startUpload() {
 
 function pollStatus() {
   if (!jobId) return;
+
   fetch('/api/status/' + jobId)
     .then((r) => r.json())
     .then((data) => {
@@ -195,10 +222,12 @@ function pollStatus() {
         downloadBtn.href = data.downloadUrl;
         downloadBtn.style.display = 'inline-flex';
         downloadBtn.textContent = 'Download ZIP';
+
         if (!autoDownloaded) {
           autoDownloaded = true;
           downloadBtn.click();
         }
+
         runBtn.disabled = false;
         clearTimeout(pollTimer);
         return;
@@ -260,6 +289,7 @@ function renderStatus(data) {
 function renderPreviewTable(rows) {
   const visible = rows.slice(0, 6);
   if (!visible.length) return '<div class="small">No preview rows available.</div>';
+
   let html = '<table class="preview-table"><tbody>';
   visible.forEach((r, idx) => {
     const a = escapeHtml(r[0] || '');
