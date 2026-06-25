@@ -23,6 +23,29 @@ const downloadBtn = document.getElementById('downloadBtn');
 const advancedSettings = document.querySelector('.advanced-settings');
 
 const SETTINGS_KEY = 'photo-downloader-settings';
+const MODE_PRESETS = {
+  fast: {
+    label: 'Fast',
+    timeoutInput: '20',
+    retryInput: '1',
+    concurrencyInput: '8',
+    browserFallbackInput: true,
+  },
+  balanced: {
+    label: 'Balanced',
+    timeoutInput: '45',
+    retryInput: '2',
+    concurrencyInput: '4',
+    browserFallbackInput: true,
+  },
+  safe: {
+    label: 'Safe',
+    timeoutInput: '90',
+    retryInput: '3',
+    concurrencyInput: '2',
+    browserFallbackInput: true,
+  },
+};
 
 let selectedFile = null;
 let parsedRows = [];
@@ -30,8 +53,13 @@ let jobId = null;
 let startedAt = 0;
 let pollTimer = null;
 let autoDownloaded = false;
+let currentMode = 'balanced';
+let modeButtons = {};
+let modeLabelEl = null;
+let customModeHintEl = null;
 
 loadSavedSettings();
+initModeControls();
 
 chooseBtn.addEventListener('click', () => fileInput.click());
 
@@ -54,8 +82,15 @@ if (advancedSettings) {
   concurrencyInput,
   browserFallbackInput,
 ].forEach((el) => {
-  el.addEventListener('change', saveCurrentSettings);
-  el.addEventListener('input', saveCurrentSettings);
+  el.addEventListener('change', () => {
+    refreshModeFromInputs();
+    saveCurrentSettings();
+  });
+
+  el.addEventListener('input', () => {
+    refreshModeFromInputs();
+    saveCurrentSettings();
+  });
 });
 
 fileInput.addEventListener('change', () => {
@@ -91,6 +126,168 @@ dropzone.addEventListener('drop', (e) => {
 });
 
 runBtn.addEventListener('click', startUpload);
+
+function initModeControls() {
+  if (!advancedSettings) return;
+
+  const settingsGrid = advancedSettings.querySelector('.settings-grid');
+  if (!settingsGrid) return;
+
+  const modeSection = document.createElement('div');
+  modeSection.className = 'mode-section';
+  modeSection.style.cssText = `
+    padding: 14px 16px 0;
+    border-top: 1px solid rgba(216, 226, 238, 0.75);
+    margin-top: 6px;
+  `;
+
+  modeSection.innerHTML = `
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:12px;">
+      <div>
+        <div style="font-size:12px;font-weight:900;letter-spacing:0.08em;text-transform:uppercase;color:#52657a;margin-bottom:6px;">Mode</div>
+        <div style="font-size:13px;color:#64748b;font-weight:600;">Choose a preset or customize the values below.</div>
+      </div>
+      <div id="modeLabel" style="display:inline-flex;align-items:center;justify-content:center;border:1px solid rgba(0,183,195,0.24);background:rgba(0,183,195,0.10);color:#0094a3;font-size:12px;font-weight:900;border-radius:999px;padding:8px 12px;white-space:nowrap;">Balanced</div>
+    </div>
+  `;
+
+  const buttonsWrap = document.createElement('div');
+  buttonsWrap.style.cssText = `
+    display:flex;
+    flex-wrap:wrap;
+    gap:8px;
+    margin-bottom:14px;
+  `;
+
+  const buttons = [
+    { key: 'fast', label: 'Fast' },
+    { key: 'balanced', label: 'Balanced' },
+    { key: 'safe', label: 'Safe' },
+  ];
+
+  buttons.forEach(({ key, label }) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.dataset.mode = key;
+    btn.textContent = label;
+    btn.style.cssText = `
+      appearance:none;
+      border:1px solid rgba(198, 211, 228, 0.95);
+      background:#f8fbff;
+      color:#334155;
+      font-size:13px;
+      font-weight:900;
+      border-radius:999px;
+      padding:9px 14px;
+      cursor:pointer;
+      box-shadow:0 6px 14px rgba(15,23,42,0.03);
+      transition:transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+    `;
+
+    btn.addEventListener('mouseenter', () => {
+      if (btn.dataset.mode !== currentMode) {
+        btn.style.transform = 'translateY(-1px)';
+      }
+    });
+
+    btn.addEventListener('mouseleave', () => {
+      btn.style.transform = 'translateY(0)';
+    });
+
+    btn.addEventListener('click', () => applyMode(key, true));
+
+    buttonsWrap.appendChild(btn);
+    modeButtons[key] = btn;
+  });
+
+  customModeHintEl = document.createElement('div');
+  customModeHintEl.style.cssText = `
+    margin-top: 2px;
+    margin-bottom: 12px;
+    font-size: 12px;
+    color:#64748b;
+    line-height:1.45;
+    font-weight:600;
+  `;
+  customModeHintEl.textContent = 'Manual edits will switch the mode to Custom automatically.';
+
+  modeSection.appendChild(buttonsWrap);
+  modeSection.appendChild(customModeHintEl);
+
+  advancedSettings.insertBefore(modeSection, settingsGrid);
+
+  modeLabelEl = modeSection.querySelector('#modeLabel');
+  updateModeUI();
+  if (MODE_PRESETS[currentMode]) {
+    applyMode(currentMode, false);
+  } else {
+    refreshModeFromInputs(false);
+  }
+}
+
+function applyMode(mode, persist = true) {
+  const preset = MODE_PRESETS[mode];
+  if (!preset) return;
+
+  currentMode = mode;
+  timeoutInput.value = preset.timeoutInput;
+  retryInput.value = preset.retryInput;
+  concurrencyInput.value = preset.concurrencyInput;
+  browserFallbackInput.checked = preset.browserFallbackInput;
+
+  updateModeUI();
+
+  if (persist) {
+    saveCurrentSettings();
+  }
+}
+
+function refreshModeFromInputs(persist = true) {
+  const matched = Object.keys(MODE_PRESETS).find((mode) => {
+    const preset = MODE_PRESETS[mode];
+    return (
+      String(timeoutInput.value || '') === preset.timeoutInput &&
+      String(retryInput.value || '') === preset.retryInput &&
+      String(concurrencyInput.value || '') === preset.concurrencyInput &&
+      Boolean(browserFallbackInput.checked) === Boolean(preset.browserFallbackInput)
+    );
+  });
+
+  currentMode = matched || 'custom';
+  updateModeUI();
+
+  if (persist) {
+    saveCurrentSettings();
+  }
+}
+
+function updateModeUI() {
+  Object.entries(modeButtons).forEach(([mode, btn]) => {
+    const isActive = mode === currentMode;
+    btn.style.background = isActive
+      ? 'linear-gradient(135deg, #00b7c3, #0094a3)'
+      : '#f8fbff';
+    btn.style.color = isActive ? '#ffffff' : '#334155';
+    btn.style.borderColor = isActive ? 'transparent' : 'rgba(198, 211, 228, 0.95)';
+    btn.style.boxShadow = isActive
+      ? '0 12px 20px rgba(0, 183, 195, 0.20)'
+      : '0 6px 14px rgba(15,23,42,0.03)';
+    btn.setAttribute('aria-pressed', String(isActive));
+  });
+
+  if (modeLabelEl) {
+    modeLabelEl.textContent = currentMode === 'custom'
+      ? 'Custom'
+      : (MODE_PRESETS[currentMode]?.label || 'Custom');
+  }
+
+  if (customModeHintEl) {
+    customModeHintEl.textContent =
+      currentMode === 'custom'
+        ? 'Custom values are active.'
+        : 'Manual edits will switch the mode to Custom automatically.';
+  }
+}
 
 async function loadFile(file) {
   selectedFile = file;
@@ -350,6 +547,10 @@ function loadSavedSettings() {
     if (saved.retryInput !== undefined) retryInput.value = saved.retryInput;
     if (saved.concurrencyInput !== undefined) concurrencyInput.value = saved.concurrencyInput;
     if (saved.browserFallbackInput !== undefined) browserFallbackInput.checked = saved.browserFallbackInput;
+
+    if (saved.mode && (saved.mode === 'fast' || saved.mode === 'balanced' || saved.mode === 'safe' || saved.mode === 'custom')) {
+      currentMode = saved.mode;
+    }
   } catch (err) {
     console.warn('Could not load saved settings:', err);
   }
@@ -363,6 +564,7 @@ function saveCurrentSettings() {
       retryInput: retryInput.value,
       concurrencyInput: concurrencyInput.value,
       browserFallbackInput: browserFallbackInput.checked,
+      mode: currentMode,
     };
 
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(payload));
