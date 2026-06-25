@@ -22,20 +22,37 @@
 
     <section class="hero">
       <h1>Upload your Excel file and download a ZIP with the images</h1>
-      <p class="hero-copy">Първият ред се използва като заглавие. Качи файла, а ние ще се погрижим за останалото.</p>
+      <p class="hero-copy">
+        Първият ред се използва като заглавие. Качи файла, а ние ще се погрижим за останалото.
+      </p>
     </section>
 
     <main class="layout">
       <section class="panel panel-left">
-        <div id="dropzone" class="dropzone">
+        <div class="upload-head">
+          <div>
+            <div class="eyebrow">Step 1</div>
+            <h2>Upload catalog</h2>
+            <p class="upload-copy">
+              Drag & drop your Excel file here or choose it manually.
+            </p>
+          </div>
+          <div class="upload-meta">
+            <span class="mini-chip">.xlsx / .xls</span>
+            <span class="mini-chip">Header row skipped</span>
+          </div>
+        </div>
+
+        <div id="dropzone" class="dropzone" tabindex="0" role="button" aria-label="Upload Excel file">
           <div class="drop-icon">↓</div>
-          <h2>Drag & drop Excel file here</h2>
+          <h3>Drop your Excel file here</h3>
           <p>Supports <b>.xlsx</b> and <b>.xls</b>. You can also choose a file manually.</p>
+
           <div class="actions">
             <button id="chooseBtn" class="btn btn-secondary" type="button">Choose file</button>
             <button id="runBtn" class="btn btn-primary" type="button" disabled>Create ZIP</button>
           </div>
-          <input id="fileInput" type="file" accept=".xlsx,.xls" />
+          <input id="fileInput" class="file-input" type="file" accept=".xlsx,.xls" />
         </div>
 
         <details class="advanced-settings">
@@ -78,7 +95,10 @@
 
         <div class="progress-block">
           <div class="progress-bar"><div id="bar" class="bar"></div></div>
-          <div class="progress-meta"><span id="progressText">0%</span><span id="etaText">ETA: —</span></div>
+          <div class="progress-meta">
+            <span id="progressText">0%</span>
+            <span id="etaText">ETA: —</span>
+          </div>
         </div>
 
         <div class="section-label">Preview</div>
@@ -91,22 +111,53 @@
       </section>
 
       <aside class="panel panel-right">
-        <h2>Overview</h2>
-        <div class="stats-grid">
-          <div class="stat"><span class="k">File</span><span id="fileName" class="v">—</span></div>
-          <div class="stat"><span class="k">Rows to process</span><span id="rowsCount" class="v">—</span></div>
-          <div class="stat"><span class="k">Ready images</span><span id="okCount" class="v">—</span></div>
-          <div class="stat"><span class="k">Errors</span><span id="errCount" class="v">—</span></div>
-          <div class="stat"><span class="k">Current item</span><span id="currentItem" class="v">—</span></div>
-          <div class="stat"><span class="k">ZIP size</span><span id="zipSize" class="v">—</span></div>
+        <div class="overview-head">
+          <div>
+            <div class="eyebrow">Step 2</div>
+            <h2>Overview</h2>
+          </div>
+          <div class="overview-badge">Live status</div>
         </div>
 
-        <div class="side-copy">
-          After processing, you will get a ZIP archive with the images and a report file inside.
+        <div class="stats-grid">
+          <div class="stat">
+            <span class="k">File</span>
+            <span id="fileName" class="v">—</span>
+          </div>
+          <div class="stat">
+            <span class="k">Rows to process</span>
+            <span id="rowsCount" class="v">—</span>
+          </div>
+          <div class="stat">
+            <span class="k">Ready images</span>
+            <span id="okCount" class="v">—</span>
+          </div>
+          <div class="stat">
+            <span class="k">Errors</span>
+            <span id="errCount" class="v">—</span>
+          </div>
+          <div class="stat">
+            <span class="k">Current item</span>
+            <span id="currentItem" class="v">—</span>
+          </div>
+          <div class="stat">
+            <span class="k">ZIP size</span>
+            <span id="zipSize" class="v">—</span>
+          </div>
+        </div>
+
+        <div class="status-card">
+          <div class="status-card-title">What you get</div>
+          <div class="side-copy">
+            After processing, you will get a ZIP archive with the images and a report file inside.
+          </div>
         </div>
 
         <a id="downloadBtn" class="btn btn-primary download-btn" href="#" style="display:none;">Download ZIP</a>
-        <div class="side-note">Internal tool styling: clean, fast, and low-friction.</div>
+
+        <div class="side-note">
+          Internal tool styling: clean, fast, and low-friction.
+        </div>
       </aside>
     </main>
   </div>
