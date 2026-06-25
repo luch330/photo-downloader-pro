@@ -35,6 +35,11 @@
             <button id="chooseBtn" class="btn btn-secondary" type="button">Choose file</button>
             <button id="runBtn" class="btn btn-primary" type="button" disabled>Create ZIP</button>
           </div>
+          <input id="fileInput" type="file" accept=".xlsx,.xls" />
+        </div>
+
+        <details class="advanced-settings">
+          <summary>Advanced settings</summary>
 
           <div class="settings-grid">
             <label>
@@ -42,26 +47,28 @@
               <input id="refererInput" type="url" placeholder="https://partner-site.com/product-page" />
               <small>If the images are protected, paste the product page URL here. It will be sent as Referer.</small>
             </label>
+
             <label>
               <span>Timeout (seconds)</span>
               <input id="timeoutInput" type="number" min="5" max="180" step="1" value="45" />
             </label>
+
             <label>
               <span>Retries</span>
               <input id="retryInput" type="number" min="0" max="5" step="1" value="2" />
             </label>
+
             <label>
               <span>Concurrency</span>
               <input id="concurrencyInput" type="number" min="1" max="10" step="1" value="4" />
             </label>
+
             <label class="checkbox">
               <input id="browserFallbackInput" type="checkbox" checked />
               <span>Use browser fallback</span>
             </label>
           </div>
-
-          <input id="fileInput" type="file" accept=".xlsx,.xls" />
-        </div>
+        </details>
 
         <div class="pill-row">
           <span class="pill">1) Header row</span>
