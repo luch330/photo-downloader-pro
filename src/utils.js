@@ -1,94 +1,130 @@
+const path = require('path');
+
+function formatBytes(bytes) {
+  const n = Number(bytes);
+  if (!Number.isFinite(n) || n < 0) return '—';
+  if (n === 0) return '0 B';
+
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const idx = Math.min(units.length - 1, Math.floor(Math.log(n) / Math.log(1024)));
+  const value = n / Math.pow(1024, idx);
+
+  return `${value >= 10 || idx === 0 ? Math.round(value) : value.toFixed(1)} ${units[idx]}`;
+}
+
+function formatDuration(ms) {
+  const totalMs = Number(ms);
+  if (!Number.isFinite(totalMs) || totalMs < 0) return '—';
+
+  const totalSeconds = Math.round(totalMs / 1000);
+  const days = Math.floor(totalSeconds / 86400);
+  const hours = Math.floor((totalSeconds % 86400) / 3600);
+  const mins = Math.floor((totalSeconds % 3600) / 60);
+  const secs = totalSeconds % 60;
+
+  const parts = [];
+  if (days) parts.push(`${days}d`);
+  if (hours) parts.push(`${hours}h`);
+  if (mins) parts.push(`${mins}m`);
+  if (!parts.length || secs) parts.push(`${secs}s`);
+
+  return parts.join(' ');
+}
+
+function sanitizeFileName(name) {
+  const raw = String(name || '').trim();
+  if (!raw) return '';
+
+  return raw
+    .replace(/[<>:"/\\|?*\u0000-\u001F]/g, '_')
+    .replace(/\s+/g, ' ')
+    .replace(/\.+/g, '.')
+    .replace(/^\.+/, '')
+    .replace(/\.+$/, '')
+    .trim()
+    .slice(0, 180);
+}
+
+function detectExtension(buffer, contentType, sourceUrl) {
+  const ct = String(contentType || '').toLowerCase();
+  const url = String(sourceUrl || '').toLowerCase();
+
+  const extFromUrl = extFromSource(url);
+  if (extFromUrl) return extFromUrl;
+
+  if (ct.includes('image/jpeg') || ct.includes('image/jpg')) return 'jpg';
+  if (ct.includes('image/png')) return 'png';
+  if (ct.includes('image/gif')) return 'gif';
+  if (ct.includes('image/webp')) return 'webp';
+  if (ct.includes('image/bmp')) return 'bmp';
+  if (ct.includes('image/svg')) return 'svg';
+  if (ct.includes('image/tiff')) return 'tiff';
+  if (ct.includes('image/avif')) return 'avif';
+  if (ct.includes('image/heic')) return 'heic';
+  if (ct.includes('image/heif')) return 'heif';
+
+  if (buffer && buffer.length) {
+    if (buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) return 'jpg';
+    if (buffer.length >= 8 && buffer.subarray(0, 8).toString('hex') === '89504e470d0a1a0a') return 'png';
+    if (buffer.length >= 6) {
+      const head = buffer.subarray(0, 6).toString('ascii');
+      if (head === 'GIF87a' || head === 'GIF89a') return 'gif';
+    }
+    if (buffer.length >= 2 && buffer[0] === 0x42 && buffer[1] === 0x4d) return 'bmp';
+    if (buffer.length >= 12) {
+      const head = buffer.subarray(0, 12).toString('ascii');
+      if (head.startsWith('RIFF') && buffer.subarray(8, 12).toString('ascii') === 'WEBP') return 'webp';
+    }
+
+    const sample = buffer.toString('utf8', 0, Math.min(buffer.length, 512)).toLowerCase();
+    if (sample.includes('<svg')) return 'svg';
+  }
+
+  return extFromUrl || null;
+}
+
+function extFromSource(url) {
+  try {
+    const clean = url.split('?')[0].split('#')[0];
+    const ext = path.extname(clean).replace('.', '').toLowerCase();
+    if (!ext) return null;
+
+    if (ext === 'jpeg') return 'jpg';
+    if (ext === 'tif') return 'tiff';
+    if (['jpg', 'png', 'gif', 'webp', 'bmp', 'svg', 'tiff', 'avif', 'heic', 'heif'].includes(ext)) {
+      return ext;
+    }
+  } catch {
+    // ignore
+  }
+
+  return null;
+}
+
+function uniqueName(base, ext, usedNames) {
+  const cleanBase = sanitizeFileName(base) || 'image';
+  const normalizedExt = String(ext || '').replace(/^\./, '').toLowerCase() || 'jpg';
+  const key = `${cleanBase}.${normalizedExt}`;
+
+  if (!usedNames[key]) {
+    usedNames[key] = 1;
+    return key;
+  }
+
+  const n = usedNames[key];
+  usedNames[key] += 1;
+  return `${cleanBase} (${n}).${normalizedExt}`;
+}
+
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function sanitizeFileName(name) {
-  return String(name || '')
-    .replace(/[\\/:*?"<>|]+/g, '_')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .replace(/^\.+/, '')
-    .slice(0, 120);
-}
-
-function uniqueName(base, ext, used) {
-  const cleanBase = base || 'file';
-  let candidate = cleanBase;
-  let count = 2;
-  let key = `${candidate.toLowerCase()}.${ext}`;
-  while (used[key]) {
-    candidate = `${cleanBase}_${count}`;
-    count += 1;
-    key = `${candidate.toLowerCase()}.${ext}`;
-  }
-  used[key] = true;
-  return `${candidate}.${ext}`;
-}
-
-function isImageContentType(contentType) {
-  return String(contentType || '').toLowerCase().startsWith('image/');
-}
-
-function detectExtension(buffer, contentType, url) {
-  const ct = String(contentType || '').toLowerCase();
-  if (ct.includes('jpeg') || ct.includes('jpg')) return 'jpg';
-  if (ct.includes('png')) return 'png';
-  if (ct.includes('webp')) return 'webp';
-  if (ct.includes('gif')) return 'gif';
-  if (ct.includes('bmp')) return 'bmp';
-  if (ct.includes('tiff') || ct.includes('tif')) return 'tiff';
-  if (ct.includes('svg')) return 'svg';
-
-  if (Buffer.isBuffer(buffer)) {
-    if (buffer.subarray(0, 3).equals(Buffer.from([0xff, 0xd8, 0xff]))) return 'jpg';
-    if (buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return 'png';
-    const head = buffer.subarray(0, 16).toString('utf8').toLowerCase();
-    if (head.includes('webp')) return 'webp';
-    if (head.includes('<svg')) return 'svg';
-  }
-
-  const clean = String(url || '').split('?')[0].split('#')[0];
-  const match = clean.match(/\.([a-zA-Z0-9]{2,5})$/);
-  if (match) {
-    const ext = match[1].toLowerCase();
-    if (ext === 'jpeg') return 'jpg';
-    if (['jpg', 'png', 'webp', 'gif', 'bmp', 'svg'].includes(ext)) return ext;
-    if (['tif', 'tiff'].includes(ext)) return 'tiff';
-  }
-  return '';
-}
-
-function getOrigin(url) {
-  try {
-    return new URL(url).origin;
-  } catch {
-    return '';
-  }
-}
-
-function formatBytes(bytes) {
-  const n = Number(bytes || 0);
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-  if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`;
-  return `${(n / (1024 * 1024 * 1024)).toFixed(1)} GB`;
-}
-
-function formatDuration(ms) {
-  const s = Math.max(0, Math.round((Number(ms || 0)) / 1000));
-  const m = Math.floor(s / 60);
-  const r = s % 60;
-  if (m > 0) return `${m}m ${r}s`;
-  return `${r}s`;
-}
-
 module.exports = {
-  sleep,
-  sanitizeFileName,
-  uniqueName,
-  isImageContentType,
-  detectExtension,
-  getOrigin,
   formatBytes,
   formatDuration,
+  sanitizeFileName,
+  detectExtension,
+  uniqueName,
+  sleep,
 };
