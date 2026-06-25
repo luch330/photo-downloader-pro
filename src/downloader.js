@@ -1,4 +1,5 @@
 const { Buffer } = require('buffer');
+const { normalizeImage } = require('./imageProcessor');
 
 let chromium = null;
 try {
@@ -26,9 +27,24 @@ async function downloadImage(url, options = {}) {
   const timeoutMs = clampInt(options.timeoutMs, 3000, 180000, DEFAULT_TIMEOUT_MS);
   const retries = clampInt(options.retries, 0, 5, DEFAULT_RETRIES);
   const browserFallback = options.browserFallback !== false;
+  const maxSide = clampInt(options.maxSide, 256, 8000, 3000);
+  const quality = clampInt(options.quality, 50, 100, 92);
 
   if (isDataUrl(inputUrl)) {
-    return decodeDataUrl(inputUrl);
+    const decoded = decodeDataUrl(inputUrl);
+    const normalized = await normalizeImage(decoded.buffer, {
+      contentType: decoded.contentType,
+      sourceUrl: inputUrl,
+      maxSide,
+      quality,
+    });
+
+    return {
+      buffer: normalized.buffer,
+      contentType: normalized.contentType,
+      finalUrl: decoded.finalUrl,
+      method: normalized.method,
+    };
   }
 
   const direct = await fetchWithRetries(inputUrl, {
@@ -38,11 +54,18 @@ async function downloadImage(url, options = {}) {
   });
 
   if (direct?.buffer && looksLikeImage(direct.buffer, direct.contentType)) {
-    return {
-      buffer: direct.buffer,
+    const normalized = await normalizeImage(direct.buffer, {
       contentType: direct.contentType,
+      sourceUrl: direct.finalUrl || inputUrl,
+      maxSide,
+      quality,
+    });
+
+    return {
+      buffer: normalized.buffer,
+      contentType: normalized.contentType,
       finalUrl: direct.finalUrl,
-      method: 'direct',
+      method: `direct-${normalized.method}`,
     };
   }
 
@@ -58,11 +81,18 @@ async function downloadImage(url, options = {}) {
         });
 
         if (nested?.buffer && looksLikeImage(nested.buffer, nested.contentType)) {
-          return {
-            buffer: nested.buffer,
+          const normalized = await normalizeImage(nested.buffer, {
             contentType: nested.contentType,
+            sourceUrl: nested.finalUrl || candidate,
+            maxSide,
+            quality,
+          });
+
+          return {
+            buffer: normalized.buffer,
+            contentType: normalized.contentType,
             finalUrl: nested.finalUrl,
-            method: 'html-meta',
+            method: `html-meta-${normalized.method}`,
           };
         }
       } catch {
@@ -78,21 +108,35 @@ async function downloadImage(url, options = {}) {
     });
 
     if (browserResult?.buffer && looksLikeImage(browserResult.buffer, browserResult.contentType)) {
-      return {
-        buffer: browserResult.buffer,
+      const normalized = await normalizeImage(browserResult.buffer, {
         contentType: browserResult.contentType,
+        sourceUrl: browserResult.finalUrl || inputUrl,
+        maxSide,
+        quality,
+      });
+
+      return {
+        buffer: normalized.buffer,
+        contentType: normalized.contentType,
         finalUrl: browserResult.finalUrl,
-        method: browserResult.method || 'browser',
+        method: `browser-${normalized.method}`,
       };
     }
   }
 
   if (direct?.buffer && direct.buffer.length && looksLikeImage(direct.buffer, direct.contentType)) {
+    const normalized = await normalizeImage(direct.buffer, {
+      contentType: direct.contentType,
+      sourceUrl: direct.finalUrl || inputUrl,
+      maxSide,
+      quality,
+    });
+
     return {
-      buffer: direct.buffer,
-      contentType: direct.contentType || guessContentTypeFromBuffer(direct.buffer),
+      buffer: normalized.buffer,
+      contentType: normalized.contentType,
       finalUrl: direct.finalUrl || inputUrl,
-      method: 'direct-heuristic',
+      method: `direct-heuristic-${normalized.method}`,
     };
   }
 
@@ -232,16 +276,15 @@ async function tryBrowserFallback(url, { referer, timeoutMs }) {
       document.querySelectorAll('img').forEach((img) => {
         push(img.currentSrc);
         push(img.src);
+        push(img.getAttribute('data-src'));
+        push(img.getAttribute('data-lazy-src'));
+        push(img.getAttribute('data-original'));
 
         const srcset = img.getAttribute('srcset');
         if (srcset) {
           const parts = srcset.split(',').map((s) => s.trim().split(' ')[0]).filter(Boolean);
           parts.forEach(push);
         }
-
-        push(img.getAttribute('data-src'));
-        push(img.getAttribute('data-lazy-src'));
-        push(img.getAttribute('data-original'));
       });
 
       document.querySelectorAll('source').forEach((source) => {
@@ -458,6 +501,7 @@ function looksLikeImage(buffer, contentType) {
     (buffer[0] === 0x49 && buffer[1] === 0x49 && buffer[2] === 0x2a && buffer[3] === 0x00) ||
     (buffer[0] === 0x4d && buffer[1] === 0x4d && buffer[2] === 0x00 && buffer[3] === 0x2a)
   )) return true;
+
   if (buffer.length >= 12) {
     const head = buffer.subarray(0, 12).toString('ascii');
     if (head.startsWith('RIFF') && buffer.subarray(8, 12).toString('ascii') === 'WEBP') return true;
@@ -467,21 +511,6 @@ function looksLikeImage(buffer, contentType) {
   if (sample.includes('<svg') || (sample.includes('<?xml') && sample.includes('<svg'))) return true;
 
   return false;
-}
-
-function guessContentTypeFromBuffer(buffer) {
-  if (!buffer || !buffer.length) return 'application/octet-stream';
-  if (buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) return 'image/jpeg';
-  if (buffer.length >= 8 && buffer.subarray(0, 8).toString('hex') === '89504e470d0a1a0a') return 'image/png';
-  if (buffer.length >= 6) {
-    const head = buffer.subarray(0, 6).toString('ascii');
-    if (head === 'GIF87a' || head === 'GIF89a') return 'image/gif';
-  }
-  if (buffer.length >= 12) {
-    const head = buffer.subarray(0, 12).toString('ascii');
-    if (head.startsWith('RIFF') && buffer.subarray(8, 12).toString('ascii') === 'WEBP') return 'image/webp';
-  }
-  return 'image/*';
 }
 
 function resolveUrl(candidate, baseUrl) {
@@ -504,7 +533,12 @@ function resolveUrl(candidate, baseUrl) {
 function normalizeError(err) {
   const message = String(err?.message || err || 'download failed').toLowerCase();
 
-  if (message.includes('aborted') || message.includes('timeout') || message.includes('timed out') || message.includes('etimedout')) {
+  if (
+    message.includes('aborted') ||
+    message.includes('timeout') ||
+    message.includes('timed out') ||
+    message.includes('etimedout')
+  ) {
     return 'timeout';
   }
 
