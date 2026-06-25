@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Photo downloader</title>
+  <link rel="stylesheet" href="/styles.css" />
+  <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand-wrap">
+        <div class="brand-mark" aria-hidden="true"></div>
+        <div>
+          <div class="brand-name">Wolt</div>
+          <div class="brand-sub">Photo downloader</div>
+        </div>
+      </div>
+      <div class="chip">Simple. Fast. Reliable.</div>
+    </header>
+
+    <section class="hero">
+      <h1>Upload your Excel file and download a ZIP with the images</h1>
+      <p class="hero-copy">Първият ред се използва като заглавие. Качи файла, а ние ще се погрижим за останалото.</p>
+    </section>
+
+    <main class="layout">
+      <section class="panel panel-left">
+        <div id="dropzone" class="dropzone">
+          <div class="drop-icon">↓</div>
+          <h2>Drag & drop Excel file here</h2>
+          <p>Supports <b>.xlsx</b> and <b>.xls</b>. You can also choose a file manually.</p>
+          <div class="actions">
+            <button id="chooseBtn" class="btn btn-secondary" type="button">Choose file</button>
+            <button id="runBtn" class="btn btn-primary" type="button" disabled>Create ZIP</button>
+          </div>
+
+          <div class="settings-grid">
+            <label>
+              <span>Partner page URL (optional)</span>
+              <input id="refererInput" type="url" placeholder="https://partner-site.com/product-page" />
+              <small>If the images are protected, paste the product page URL here. It will be sent as Referer.</small>
+            </label>
+            <label>
+              <span>Timeout (seconds)</span>
+              <input id="timeoutInput" type="number" min="5" max="180" step="1" value="45" />
+            </label>
+            <label>
+              <span>Retries</span>
+              <input id="retryInput" type="number" min="0" max="5" step="1" value="2" />
+            </label>
+            <label>
+              <span>Concurrency</span>
+              <input id="concurrencyInput" type="number" min="1" max="10" step="1" value="4" />
+            </label>
+            <label class="checkbox">
+              <input id="browserFallbackInput" type="checkbox" checked />
+              <span>Use browser fallback</span>
+            </label>
+          </div>
+
+          <input id="fileInput" type="file" accept=".xlsx,.xls" />
+        </div>
+
+        <div class="pill-row">
+          <span class="pill">1) Header row</span>
+          <span class="pill">2) Item name</span>
+          <span class="pill">3) Image URL</span>
+        </div>
+
+        <div class="progress-block">
+          <div class="progress-bar"><div id="bar" class="bar"></div></div>
+          <div class="progress-meta"><span id="progressText">0%</span><span id="etaText">ETA: —</span></div>
+        </div>
+
+        <div class="section-label">Preview</div>
+        <div id="previewWrap" class="preview-wrap">Upload a file to see the first rows.</div>
+
+        <div class="section-label">Live log</div>
+        <pre id="logWrap" class="log">Waiting for a file...</pre>
+
+        <div id="status" class="status">Waiting for a file.</div>
+      </section>
+
+      <aside class="panel panel-right">
+        <h2>Overview</h2>
+        <div class="stats-grid">
+          <div class="stat"><span class="k">File</span><span id="fileName" class="v">—</span></div>
+          <div class="stat"><span class="k">Rows to process</span><span id="rowsCount" class="v">—</span></div>
+          <div class="stat"><span class="k">Ready images</span><span id="okCount" class="v">—</span></div>
+          <div class="stat"><span class="k">Errors</span><span id="errCount" class="v">—</span></div>
+          <div class="stat"><span class="k">Current item</span><span id="currentItem" class="v">—</span></div>
+          <div class="stat"><span class="k">ZIP size</span><span id="zipSize" class="v">—</span></div>
+        </div>
+
+        <div class="side-copy">
+          After processing, you will get a ZIP archive with the images and a report file inside.
+        </div>
+
+        <a id="downloadBtn" class="btn btn-primary download-btn" href="#" style="display:none;">Download ZIP</a>
+        <div class="side-note">Internal tool styling: clean, fast, and low-friction.</div>
+      </aside>
+    </main>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

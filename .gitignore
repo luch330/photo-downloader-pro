@@ -1,0 +1,6 @@
+node_modules
+.DS_Store
+*.zip
+/tmp
+coverage
+npm-debug.log*

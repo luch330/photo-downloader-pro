@@ -1,0 +1,21 @@
+{
+  "name": "photo-downloader-pro",
+  "version": "2.0.0",
+  "description": "Wolt-inspired photo downloader for Excel catalogs with ZIP export and partner-site fallback download methods.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "postinstall": "playwright install chromium"
+  },
+  "dependencies": {
+    "archiver": "^7.0.1",
+    "compression": "^1.7.5",
+    "express": "^4.21.2",
+    "helmet": "^8.0.0",
+    "morgan": "^1.10.0",
+    "playwright": "^1.55.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
