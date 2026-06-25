@@ -13,6 +13,7 @@ const okCountEl = document.getElementById('okCount');
 const errCountEl = document.getElementById('errCount');
 const currentItemEl = document.getElementById('currentItem');
 const zipSizeEl = document.getElementById('zipSize');
+const estimatedFinishEl = document.getElementById('estimatedFinish');
 const progressText = document.getElementById('progressText');
 const etaText = document.getElementById('etaText');
 const barEl = document.getElementById('bar');
@@ -20,9 +21,34 @@ const previewWrap = document.getElementById('previewWrap');
 const logWrap = document.getElementById('logWrap');
 const statusEl = document.getElementById('status');
 const downloadBtn = document.getElementById('downloadBtn');
-const advancedSettings = document.querySelector('.advanced-settings');
+const modeBadge = document.getElementById('modeBadge');
+const settingsBtn = document.getElementById('settingsBtn');
+const themeBtn = document.getElementById('themeBtn');
+const settingsModal = document.getElementById('settingsModal');
+const closeSettingsBtn = document.getElementById('closeSettingsBtn');
+const saveSettingsBtn = document.getElementById('saveSettingsBtn');
+const resetSettingsBtn = document.getElementById('resetSettingsBtn');
+const modeCards = Array.from(document.querySelectorAll('[data-mode]'));
+const modeLabelEl = document.getElementById('modeLabel');
+const customModeHintEl = document.getElementById('customModeHint');
+const columnHint = document.getElementById('columnHint');
+const errorSummaryCard = document.getElementById('errorSummaryCard');
+const errorSummaryGrid = document.getElementById('errorSummaryGrid');
+const errorSummaryHelp = document.getElementById('errorSummaryHelp');
+const retryFailedBtn = document.getElementById('retryFailedBtn');
+const viewErrorsBtn = document.getElementById('viewErrorsBtn');
+const successScreen = document.getElementById('successScreen');
+const successDownloadBtn = document.getElementById('successDownloadBtn');
+const successRetryBtn = document.getElementById('successRetryBtn');
+const closeSuccessBtn = document.getElementById('closeSuccessBtn');
+const successImages = document.getElementById('successImages');
+const successErrors = document.getElementById('successErrors');
+const successZipSize = document.getElementById('successZipSize');
+const successFinish = document.getElementById('successFinish');
 
 const SETTINGS_KEY = 'photo-downloader-settings';
+const THEME_KEY = 'photo-downloader-theme';
+
 const MODE_PRESETS = {
   fast: {
     label: 'Fast',
@@ -49,19 +75,34 @@ const MODE_PRESETS = {
 
 let selectedFile = null;
 let parsedRows = [];
+let originalRows = [];
 let jobId = null;
 let startedAt = 0;
 let pollTimer = null;
 let autoDownloaded = false;
 let currentMode = 'balanced';
-let modeButtons = {};
-let modeLabelEl = null;
-let customModeHintEl = null;
+let lastFailedRows = [];
+let lastErrorSummary = null;
+let detectedColumns = null;
 
+loadTheme();
 loadSavedSettings();
-initModeControls();
+refreshModeFromInputs(false);
+updateModeUI();
+renderErrorSummary({
+  total: 0,
+  forbidden: 0,
+  unauthorized: 0,
+  notFound: 0,
+  timeout: 0,
+  nonImage: 0,
+  other: 0,
+});
 
 chooseBtn.addEventListener('click', () => fileInput.click());
+modeBadge.addEventListener('click', openSettings);
+settingsBtn.addEventListener('click', openSettings);
+themeBtn.addEventListener('click', toggleTheme);
 
 dropzone.addEventListener('click', (e) => {
   const interactive = e.target.closest('button, input, select, textarea, label, summary, a');
@@ -69,28 +110,11 @@ dropzone.addEventListener('click', (e) => {
   fileInput.click();
 });
 
-if (advancedSettings) {
-  advancedSettings.addEventListener('click', (e) => {
-    e.stopPropagation();
-  });
-}
-
-[
-  refererInput,
-  timeoutInput,
-  retryInput,
-  concurrencyInput,
-  browserFallbackInput,
-].forEach((el) => {
-  el.addEventListener('change', () => {
-    refreshModeFromInputs();
-    saveCurrentSettings();
-  });
-
-  el.addEventListener('input', () => {
-    refreshModeFromInputs();
-    saveCurrentSettings();
-  });
+dropzone.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' || e.key === ' ') {
+    e.preventDefault();
+    fileInput.click();
+  }
 });
 
 fileInput.addEventListener('change', () => {
@@ -126,102 +150,167 @@ dropzone.addEventListener('drop', (e) => {
 });
 
 runBtn.addEventListener('click', startUpload);
+retryFailedBtn.addEventListener('click', retryFailed);
+successRetryBtn.addEventListener('click', retryFailed);
+viewErrorsBtn.addEventListener('click', () => {
+  if (errorSummaryCard) {
+    errorSummaryCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+});
+closeSuccessBtn.addEventListener('click', closeSuccess);
+successScreen.addEventListener('click', (e) => {
+  if (e.target === successScreen) closeSuccess();
+});
+settingsModal.addEventListener('click', (e) => {
+  if (e.target === settingsModal) closeSettings();
+});
+closeSettingsBtn.addEventListener('click', closeSettings);
+saveSettingsBtn.addEventListener('click', () => {
+  saveCurrentSettings();
+  closeSettings();
+});
+resetSettingsBtn.addEventListener('click', () => {
+  applyMode('balanced', true);
+  saveCurrentSettings();
+});
+modeCards.forEach((btn) => {
+  btn.addEventListener('click', () => {
+    const mode = btn.dataset.mode;
+    applyMode(mode, true);
+  });
+});
 
-function initModeControls() {
-  if (!advancedSettings) return;
-
-  const settingsGrid = advancedSettings.querySelector('.settings-grid');
-  if (!settingsGrid) return;
-
-  const modeSection = document.createElement('div');
-  modeSection.className = 'mode-section';
-  modeSection.style.cssText = `
-    padding: 14px 16px 0;
-    border-top: 1px solid rgba(216, 226, 238, 0.75);
-    margin-top: 6px;
-  `;
-
-  modeSection.innerHTML = `
-    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:12px;">
-      <div>
-        <div style="font-size:12px;font-weight:900;letter-spacing:0.08em;text-transform:uppercase;color:#52657a;margin-bottom:6px;">Mode</div>
-        <div style="font-size:13px;color:#64748b;font-weight:600;">Choose a preset or customize the values below.</div>
-      </div>
-      <div id="modeLabel" style="display:inline-flex;align-items:center;justify-content:center;border:1px solid rgba(0,183,195,0.24);background:rgba(0,183,195,0.10);color:#0094a3;font-size:12px;font-weight:900;border-radius:999px;padding:8px 12px;white-space:nowrap;">Balanced</div>
-    </div>
-  `;
-
-  const buttonsWrap = document.createElement('div');
-  buttonsWrap.style.cssText = `
-    display:flex;
-    flex-wrap:wrap;
-    gap:8px;
-    margin-bottom:14px;
-  `;
-
-  const buttons = [
-    { key: 'fast', label: 'Fast' },
-    { key: 'balanced', label: 'Balanced' },
-    { key: 'safe', label: 'Safe' },
-  ];
-
-  buttons.forEach(({ key, label }) => {
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.dataset.mode = key;
-    btn.textContent = label;
-    btn.style.cssText = `
-      appearance:none;
-      border:1px solid rgba(198, 211, 228, 0.95);
-      background:#f8fbff;
-      color:#334155;
-      font-size:13px;
-      font-weight:900;
-      border-radius:999px;
-      padding:9px 14px;
-      cursor:pointer;
-      box-shadow:0 6px 14px rgba(15,23,42,0.03);
-      transition:transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
-    `;
-
-    btn.addEventListener('mouseenter', () => {
-      if (btn.dataset.mode !== currentMode) {
-        btn.style.transform = 'translateY(-1px)';
-      }
-    });
-
-    btn.addEventListener('mouseleave', () => {
-      btn.style.transform = 'translateY(0)';
-    });
-
-    btn.addEventListener('click', () => applyMode(key, true));
-
-    buttonsWrap.appendChild(btn);
-    modeButtons[key] = btn;
+[
+  refererInput,
+  timeoutInput,
+  retryInput,
+  concurrencyInput,
+  browserFallbackInput,
+].forEach((el) => {
+  el.addEventListener('change', () => {
+    refreshModeFromInputs(true);
+    saveCurrentSettings();
   });
 
-  customModeHintEl = document.createElement('div');
-  customModeHintEl.style.cssText = `
-    margin-top: 2px;
-    margin-bottom: 12px;
-    font-size: 12px;
-    color:#64748b;
-    line-height:1.45;
-    font-weight:600;
-  `;
-  customModeHintEl.textContent = 'Manual edits will switch the mode to Custom automatically.';
+  el.addEventListener('input', () => {
+    refreshModeFromInputs(true);
+    saveCurrentSettings();
+  });
+});
 
-  modeSection.appendChild(buttonsWrap);
-  modeSection.appendChild(customModeHintEl);
+document.addEventListener('keydown', (e) => {
+  const mod = e.metaKey || e.ctrlKey;
+  if (mod && e.key.toLowerCase() === 'o') {
+    e.preventDefault();
+    fileInput.click();
+    return;
+  }
 
-  advancedSettings.insertBefore(modeSection, settingsGrid);
+  if (mod && e.key === 'Enter') {
+    e.preventDefault();
+    if (!runBtn.disabled) startUpload();
+    return;
+  }
 
-  modeLabelEl = modeSection.querySelector('#modeLabel');
-  updateModeUI();
-  if (MODE_PRESETS[currentMode]) {
-    applyMode(currentMode, false);
-  } else {
-    refreshModeFromInputs(false);
+  if (e.key === 'Escape') {
+    if (!settingsModal.hidden) {
+      closeSettings();
+      return;
+    }
+    if (!successScreen.hidden) {
+      closeSuccess();
+    }
+  }
+});
+
+function openSettings() {
+  settingsModal.hidden = false;
+  document.body.style.overflow = 'hidden';
+  setTimeout(() => refererInput.focus(), 30);
+}
+
+function closeSettings() {
+  settingsModal.hidden = true;
+  document.body.style.overflow = '';
+}
+
+function openSuccess() {
+  successScreen.hidden = false;
+  document.body.style.overflow = 'hidden';
+}
+
+function closeSuccess() {
+  successScreen.hidden = true;
+  document.body.style.overflow = '';
+}
+
+function toggleTheme() {
+  const isDark = !document.body.classList.contains('theme-dark');
+  setTheme(isDark);
+  saveTheme();
+}
+
+function setTheme(isDark) {
+  document.body.classList.toggle('theme-dark', isDark);
+  themeBtn.textContent = isDark ? '☀ Light mode' : '🌙 Dark mode';
+}
+
+function loadTheme() {
+  try {
+    const saved = localStorage.getItem(THEME_KEY);
+    if (saved === 'dark') {
+      setTheme(true);
+      return;
+    }
+    if (saved === 'light') {
+      setTheme(false);
+      return;
+    }
+  } catch (err) {
+    console.warn('Could not load theme:', err);
+  }
+
+  const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+  setTheme(prefersDark);
+}
+
+function saveTheme() {
+  try {
+    localStorage.setItem(THEME_KEY, document.body.classList.contains('theme-dark') ? 'dark' : 'light');
+  } catch (err) {
+    console.warn('Could not save theme:', err);
+  }
+}
+
+function loadSavedSettings() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}');
+
+    if (saved.refererInput !== undefined) refererInput.value = saved.refererInput;
+    if (saved.timeoutInput !== undefined) timeoutInput.value = saved.timeoutInput;
+    if (saved.retryInput !== undefined) retryInput.value = saved.retryInput;
+    if (saved.concurrencyInput !== undefined) concurrencyInput.value = saved.concurrencyInput;
+    if (saved.browserFallbackInput !== undefined) browserFallbackInput.checked = saved.browserFallbackInput;
+    if (saved.mode) currentMode = saved.mode;
+  } catch (err) {
+    console.warn('Could not load saved settings:', err);
+  }
+}
+
+function saveCurrentSettings() {
+  try {
+    const payload = {
+      refererInput: refererInput.value,
+      timeoutInput: timeoutInput.value,
+      retryInput: retryInput.value,
+      concurrencyInput: concurrencyInput.value,
+      browserFallbackInput: browserFallbackInput.checked,
+      mode: currentMode,
+    };
+
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(payload));
+  } catch (err) {
+    console.warn('Could not save settings:', err);
   }
 }
 
@@ -262,23 +351,21 @@ function refreshModeFromInputs(persist = true) {
 }
 
 function updateModeUI() {
-  Object.entries(modeButtons).forEach(([mode, btn]) => {
-    const isActive = mode === currentMode;
-    btn.style.background = isActive
-      ? 'linear-gradient(135deg, #00b7c3, #0094a3)'
-      : '#f8fbff';
-    btn.style.color = isActive ? '#ffffff' : '#334155';
-    btn.style.borderColor = isActive ? 'transparent' : 'rgba(198, 211, 228, 0.95)';
-    btn.style.boxShadow = isActive
-      ? '0 12px 20px rgba(0, 183, 195, 0.20)'
-      : '0 6px 14px rgba(15,23,42,0.03)';
-    btn.setAttribute('aria-pressed', String(isActive));
+  modeCards.forEach((btn) => {
+    const isActive = btn.dataset.mode === currentMode;
+    btn.classList.toggle('active', isActive);
   });
 
   if (modeLabelEl) {
     modeLabelEl.textContent = currentMode === 'custom'
       ? 'Custom'
       : (MODE_PRESETS[currentMode]?.label || 'Custom');
+  }
+
+  if (modeBadge) {
+    modeBadge.textContent = currentMode === 'custom'
+      ? 'Custom'
+      : (MODE_PRESETS[currentMode]?.label || 'Balanced');
   }
 
   if (customModeHintEl) {
@@ -297,9 +384,12 @@ async function loadFile(file) {
   downloadBtn.style.display = 'none';
   downloadBtn.href = '#';
   zipSizeEl.textContent = '—';
+  estimatedFinishEl.textContent = '—';
   logWrap.textContent = 'Reading Excel file...';
   previewWrap.innerHTML = '<div class="small">Loading preview...</div>';
   runBtn.disabled = true;
+  detectedColumns = null;
+  columnHint.innerHTML = '<span class="mini-chip">Detecting columns…</span>';
 
   saveCurrentSettings();
 
@@ -309,9 +399,10 @@ async function loadFile(file) {
     const sheet = workbook.Sheets[workbook.SheetNames[0]];
     const raw = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
 
-    parsedRows = raw
-      .map((r) => [String(r[0] || '').trim(), String(r[1] || '').trim()])
-      .filter((r) => r[0] || r[1]);
+    detectedColumns = detectColumnMapping(raw);
+    parsedRows = normalizeRows(raw, detectedColumns);
+    originalRows = parsedRows.slice();
+    renderColumnHint(detectedColumns);
 
     const dataRows = parsedRows.slice(1);
     rowsCountEl.textContent = String(dataRows.length);
@@ -334,12 +425,27 @@ async function loadFile(file) {
     runBtn.disabled = false;
   } catch (err) {
     parsedRows = [];
+    originalRows = [];
     rowsCountEl.textContent = '—';
     previewWrap.innerHTML = '<div class="small">Upload a file to see the first rows.</div>';
     setStatus('Error reading Excel: ' + err.message, 'error');
     setProgress(0, '0%');
     runBtn.disabled = true;
   }
+}
+
+function renderColumnHint(mapping) {
+  if (!mapping) {
+    columnHint.innerHTML = '<span class="mini-chip">Auto-detect ready</span>';
+    return;
+  }
+
+  const nameLetter = indexToLetter(mapping.nameIndex);
+  const urlLetter = indexToLetter(mapping.urlIndex);
+  columnHint.innerHTML = `
+    <span class="mini-chip">Name: ${escapeHtml(mapping.nameLabel || `Column ${nameLetter}`)} (${nameLetter})</span>
+    <span class="mini-chip">URL: ${escapeHtml(mapping.urlLabel || `Column ${urlLetter}`)} (${urlLetter})</span>
+  `;
 }
 
 function renderPreview(rows) {
@@ -381,12 +487,18 @@ async function startUpload() {
   autoDownloaded = false;
   jobId = null;
   startedAt = Date.now();
+  lastFailedRows = [];
+  lastErrorSummary = null;
   downloadBtn.style.display = 'none';
   downloadBtn.href = '#';
+  successDownloadBtn.href = '#';
+  successScreen.hidden = true;
   setStatus('Uploading and processing...', 'info');
   setProgress(5, 'Uploading...');
   logWrap.textContent = 'Starting...';
   currentItemEl.textContent = '—';
+  retryFailedBtn.disabled = true;
+  successRetryBtn.style.display = 'none';
   runBtn.disabled = true;
 
   saveCurrentSettings();
@@ -439,9 +551,26 @@ function pollStatus() {
         downloadBtn.style.display = 'inline-flex';
         downloadBtn.textContent = 'Download ZIP';
 
+        successDownloadBtn.href = data.downloadUrl;
+        successImages.textContent = String(data.ready ?? '—');
+        successErrors.textContent = String(data.failed ?? '—');
+        successZipSize.textContent = data.zipSizeText || data.downloadName || 'ready';
+        successFinish.textContent = estimatedFinishEl.textContent || '—';
+
+        if (Array.isArray(data.failedRows) && data.failedRows.length) {
+          lastFailedRows = normalizeFailedRows(data.failedRows);
+          retryFailedBtn.disabled = !lastFailedRows.length;
+          successRetryBtn.style.display = lastFailedRows.length ? 'inline-flex' : 'none';
+        } else {
+          retryFailedBtn.disabled = true;
+          successRetryBtn.style.display = 'none';
+        }
+
+        openSuccess();
+
         if (!autoDownloaded) {
           autoDownloaded = true;
-          downloadBtn.click();
+          successDownloadBtn.click();
         }
 
         runBtn.disabled = false;
@@ -481,11 +610,15 @@ function renderStatus(data) {
   if (startedAt && progress > 0 && progress < 100) {
     const elapsed = (Date.now() - startedAt) / 1000;
     const remaining = (elapsed * (100 - progress)) / progress;
+    const remainingMs = Math.max(0, Math.round(remaining * 1000));
     etaText.textContent = 'ETA: ' + formatDuration(remaining);
+    estimatedFinishEl.textContent = formatClockTime(Date.now() + remainingMs);
   } else if (progress >= 100) {
     etaText.textContent = 'ETA: done';
+    estimatedFinishEl.textContent = formatClockTime(Date.now());
   } else {
     etaText.textContent = 'ETA: —';
+    estimatedFinishEl.textContent = '—';
   }
 
   if (Array.isArray(data.preview) && data.preview.length) {
@@ -500,21 +633,309 @@ function renderStatus(data) {
   if (data.downloadReady && data.downloadUrl) {
     zipSizeEl.textContent = data.zipSizeText || data.downloadName || 'ready';
   }
+
+  const summary = deriveErrorSummary(data);
+  lastErrorSummary = summary;
+  renderErrorSummary(summary);
+
+  if (Array.isArray(data.failedRows) && data.failedRows.length) {
+    lastFailedRows = normalizeFailedRows(data.failedRows);
+    retryFailedBtn.disabled = !lastFailedRows.length;
+    successRetryBtn.style.display = lastFailedRows.length ? 'inline-flex' : 'none';
+  } else if (Number(data.failed || 0) > 0) {
+    retryFailedBtn.disabled = true;
+    successRetryBtn.style.display = 'none';
+  }
 }
 
-function renderPreviewTable(rows) {
-  const visible = rows.slice(0, 6);
-  if (!visible.length) return '<div class="small">No preview rows available.</div>';
+function renderErrorSummary(summary) {
+  if (!summary || summary.total === 0) {
+    errorSummaryGrid.innerHTML = '<div class="summary-empty">No error summary yet.</div>';
+    errorSummaryHelp.textContent = 'This will summarize what failed in the latest run.';
+    return;
+  }
 
-  let html = '<table class="preview-table"><tbody>';
-  visible.forEach((r, idx) => {
-    const a = escapeHtml(r[0] || '');
-    const b = escapeHtml(r[1] || '');
-    if (idx === 0) html += '<tr><th>' + a + '</th><th>' + b + '</th></tr>';
-    else html += '<tr><td>' + a + '</td><td class="preview-url">' + b + '</td></tr>';
+  const items = [
+    ['403 / Forbidden', summary.forbidden || 0],
+    ['Timeout', summary.timeout || 0],
+    ['404 / Not found', summary.notFound || 0],
+    ['Non-image', summary.nonImage || 0],
+    ['Other', summary.other || 0],
+  ];
+
+  errorSummaryGrid.innerHTML = items
+    .map(([label, value]) => `
+      <div class="summary-card">
+        <span class="summary-kind">${escapeHtml(label)}</span>
+        <span class="summary-value">${Number(value || 0)}</span>
+      </div>
+    `)
+    .join('');
+
+  errorSummaryHelp.textContent = `Detected ${summary.total} failed items in the latest run.`;
+}
+
+function retryFailed() {
+  if (!lastFailedRows.length) {
+    setStatus('No failed rows available to retry yet.', 'info');
+    return;
+  }
+
+  const retryRows = buildRetryRows(lastFailedRows);
+  if (!retryRows || retryRows.length < 2) {
+    setStatus('Could not prepare retry rows yet.', 'error');
+    return;
+  }
+
+  parsedRows = retryRows;
+  rowsCountEl.textContent = String(retryRows.length - 1);
+  runBtn.disabled = false;
+  closeSuccess();
+  setStatus('Retrying only the failed rows...', 'info');
+  startUpload();
+}
+
+function buildRetryRows(failedRows) {
+  const header = originalRows[0] || ['Item name', 'Image URL'];
+  const rows = [header];
+
+  failedRows.forEach((row) => {
+    const rowNumber = Number(row.rowNumber || row.excelRow || row.row || 0);
+    if (rowNumber >= 2 && originalRows[rowNumber - 1]) {
+      rows.push(originalRows[rowNumber - 1]);
+      return;
+    }
+
+    if (row.itemName || row.imageUrl) {
+      rows.push([row.itemName || '', row.imageUrl || '']);
+    }
   });
-  html += '</tbody></table>';
-  return html;
+
+  return rows;
+}
+
+function normalizeFailedRows(rows) {
+  if (!Array.isArray(rows)) return [];
+
+  return rows
+    .map((row) => {
+      if (Array.isArray(row)) {
+        return {
+          rowNumber: Number(row[0] || 0),
+          itemName: String(row[1] || ''),
+          imageUrl: String(row[2] || ''),
+          error: String(row[3] || ''),
+          method: String(row[4] || ''),
+        };
+      }
+
+      if (row && typeof row === 'object') {
+        return {
+          rowNumber: Number(row.rowNumber || row.excelRow || row.row || 0),
+          itemName: String(row.itemName || row.name || ''),
+          imageUrl: String(row.imageUrl || row.url || ''),
+          error: String(row.error || row.message || ''),
+          method: String(row.method || ''),
+        };
+      }
+
+      return null;
+    })
+    .filter(Boolean);
+}
+
+function deriveErrorSummary(data) {
+  const lines = [];
+
+  if (Array.isArray(data?.logs)) lines.push(...data.logs);
+  if (Array.isArray(data?.failedRows)) {
+    data.failedRows.forEach((row) => {
+      if (Array.isArray(row)) {
+        lines.push(`Row ${row[0] || ''}: ${row[3] || ''}`);
+      } else if (row && typeof row === 'object') {
+        lines.push(`Row ${row.rowNumber || row.excelRow || row.row || ''}: ${row.error || row.message || ''}`);
+      }
+    });
+  }
+
+  if (!lines.length && Number(data?.failed || 0) === 0) {
+    return {
+      total: 0,
+      forbidden: 0,
+      unauthorized: 0,
+      notFound: 0,
+      timeout: 0,
+      nonImage: 0,
+      other: 0,
+    };
+  }
+
+  const summary = {
+    total: 0,
+    forbidden: 0,
+    unauthorized: 0,
+    notFound: 0,
+    timeout: 0,
+    nonImage: 0,
+    other: 0,
+  };
+
+  const seen = lines.filter(Boolean);
+  seen.forEach((line) => {
+    const text = String(line).toLowerCase();
+    if (!text.includes('fail') && !text.includes('error') && !/\b403\b|\b401\b|\b404\b|timeout|html|non-image|blocked|forbidden|not found/.test(text)) {
+      return;
+    }
+
+    summary.total += 1;
+
+    if (/\b403\b|forbidden/.test(text)) {
+      summary.forbidden += 1;
+      return;
+    }
+
+    if (/\b401\b|unauthorized/.test(text)) {
+      summary.unauthorized += 1;
+      return;
+    }
+
+    if (/\b404\b|not found/.test(text)) {
+      summary.notFound += 1;
+      return;
+    }
+
+    if (/timeout|timed out|etimedout|aborted/.test(text)) {
+      summary.timeout += 1;
+      return;
+    }
+
+    if (/non-image|unsupported content type|blocked content type|text\/html|html response|image not found/.test(text)) {
+      summary.nonImage += 1;
+      return;
+    }
+
+    summary.other += 1;
+  });
+
+  if (!summary.total && Number(data?.failed || 0) > 0) {
+    summary.total = Number(data.failed || 0);
+    summary.other = Number(data.failed || 0);
+  }
+
+  return summary;
+}
+
+function detectColumnMapping(raw) {
+  const rows = Array.isArray(raw) ? raw : [];
+  const headers = (rows[0] || []).map((v) => String(v || '').trim());
+  const width = rows.reduce((max, row) => Math.max(max, Array.isArray(row) ? row.length : 0), headers.length);
+
+  const nameAliases = [
+    'item name', 'product name', 'product', 'name', 'title', 'article', 'article name', 'sku', 'variant', 'item'
+  ];
+  const urlAliases = [
+    'image url', 'image', 'image link', 'photo url', 'photo', 'picture', 'picture url',
+    'url', 'link', 'src', 'image src', 'picture link'
+  ];
+
+  const nameScores = Array.from({ length: width }, (_, col) => scoreNameCol(rows, headers, col, nameAliases));
+  const urlScores = Array.from({ length: width }, (_, col) => scoreUrlCol(rows, headers, col, urlAliases));
+
+  let nameIndex = maxIndex(nameScores);
+  let urlIndex = maxIndex(urlScores);
+
+  if (width > 1 && nameIndex === urlIndex) {
+    urlIndex = nameIndex === 0 ? 1 : 0;
+  }
+
+  const nameLabel = headers[nameIndex] || `Column ${indexToLetter(nameIndex)}`;
+  const urlLabel = headers[urlIndex] || `Column ${indexToLetter(urlIndex)}`;
+
+  return { nameIndex, urlIndex, nameLabel, urlLabel };
+}
+
+function scoreNameCol(rows, headers, col, aliases) {
+  const header = String(headers[col] || '').toLowerCase();
+  let score = 0;
+
+  aliases.forEach((alias) => {
+    if (header.includes(alias)) score += 10;
+  });
+
+  rows.slice(1, 6).forEach((row) => {
+    const value = String(row?.[col] || '').trim();
+    if (!value) return;
+    if (looksLikeUrl(value)) score -= 2;
+    else score += 1;
+  });
+
+  return score;
+}
+
+function scoreUrlCol(rows, headers, col, aliases) {
+  const header = String(headers[col] || '').toLowerCase();
+  let score = 0;
+
+  aliases.forEach((alias) => {
+    if (header.includes(alias)) score += 10;
+  });
+
+  rows.slice(1, 10).forEach((row) => {
+    const value = String(row?.[col] || '').trim();
+    if (!value) return;
+    if (looksLikeUrl(value)) score += 3;
+    if (/\.(jpg|jpeg|png|webp|gif|bmp|tiff|svg)(\?|#|$)/i.test(value)) score += 2;
+  });
+
+  return score;
+}
+
+function normalizeRows(raw, mapping) {
+  const rows = Array.isArray(raw) ? raw : [];
+  const out = [];
+
+  const header = rows[0] || [];
+  const headerName = String(header[mapping.nameIndex] || 'Item name').trim() || 'Item name';
+  const headerUrl = String(header[mapping.urlIndex] || 'Image URL').trim() || 'Image URL';
+  out.push([headerName, headerUrl]);
+
+  rows.slice(1).forEach((row) => {
+    const name = String(row?.[mapping.nameIndex] || '').trim();
+    const url = String(row?.[mapping.urlIndex] || '').trim();
+    if (!name && !url) return;
+    out.push([name, url]);
+  });
+
+  return out;
+}
+
+function looksLikeUrl(value) {
+  const text = String(value || '').trim().toLowerCase();
+  return /^https?:\/\//.test(text) || text.includes('www.') || /\.(jpg|jpeg|png|webp|gif|bmp|tiff|svg)(\?|#|$)/.test(text);
+}
+
+function maxIndex(arr) {
+  let bestIndex = 0;
+  let bestValue = Number.NEGATIVE_INFINITY;
+  arr.forEach((value, index) => {
+    if (value > bestValue) {
+      bestValue = value;
+      bestIndex = index;
+    }
+  });
+  return bestIndex;
+}
+
+function indexToLetter(index) {
+  const n = Number(index || 0);
+  let result = '';
+  let x = n + 1;
+  while (x > 0) {
+    const rem = (x - 1) % 26;
+    result = String.fromCharCode(65 + rem) + result;
+    x = Math.floor((x - 1) / 26);
+  }
+  return result || 'A';
 }
 
 function setStatus(text, kind) {
@@ -538,39 +959,10 @@ function formatDuration(sec) {
   return `${r}s`;
 }
 
-function loadSavedSettings() {
-  try {
-    const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}');
-
-    if (saved.refererInput !== undefined) refererInput.value = saved.refererInput;
-    if (saved.timeoutInput !== undefined) timeoutInput.value = saved.timeoutInput;
-    if (saved.retryInput !== undefined) retryInput.value = saved.retryInput;
-    if (saved.concurrencyInput !== undefined) concurrencyInput.value = saved.concurrencyInput;
-    if (saved.browserFallbackInput !== undefined) browserFallbackInput.checked = saved.browserFallbackInput;
-
-    if (saved.mode && (saved.mode === 'fast' || saved.mode === 'balanced' || saved.mode === 'safe' || saved.mode === 'custom')) {
-      currentMode = saved.mode;
-    }
-  } catch (err) {
-    console.warn('Could not load saved settings:', err);
-  }
-}
-
-function saveCurrentSettings() {
-  try {
-    const payload = {
-      refererInput: refererInput.value,
-      timeoutInput: timeoutInput.value,
-      retryInput: retryInput.value,
-      concurrencyInput: concurrencyInput.value,
-      browserFallbackInput: browserFallbackInput.checked,
-      mode: currentMode,
-    };
-
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify(payload));
-  } catch (err) {
-    console.warn('Could not save settings:', err);
-  }
+function formatClockTime(ts) {
+  if (!Number.isFinite(ts)) return '—';
+  const d = new Date(ts);
+  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
 function escapeHtml(str) {
