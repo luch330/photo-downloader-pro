@@ -1,5 +1,4 @@
 const path = require('path');
-const os = require('os');
 const fs = require('fs/promises');
 
 const express = require('express');
@@ -7,6 +6,7 @@ const compression = require('compression');
 const helmet = require('helmet');
 const morgan = require('morgan');
 
+const { createJobStore } = require('./src/state');
 const { downloadImage } = require('./src/downloader');
 const { buildZip } = require('./src/zipBuilder');
 const {
@@ -18,6 +18,7 @@ const {
 } = require('./src/utils');
 
 const app = express();
+const store = createJobStore();
 const PORT = Number(process.env.PORT || 3000);
 
 const DEFAULT_SETTINGS = {
@@ -27,8 +28,6 @@ const DEFAULT_SETTINGS = {
   browserFallback: true,
 };
 
-const jobs = new Map();
-
 app.use(helmet({ contentSecurityPolicy: false }));
 app.use(compression());
 app.use(morgan('dev'));
@@ -37,7 +36,11 @@ app.use(express.urlencoded({ extended: true, limit: '25mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 app.get('/health', (_req, res) => {
-  res.json({ ok: true, service: 'photo-downloader-pro', time: new Date().toISOString() });
+  res.json({
+    ok: true,
+    service: 'photo-downloader-pro',
+    time: new Date().toISOString(),
+  });
 });
 
 app.post('/api/start', async (req, res) => {
@@ -46,6 +49,7 @@ app.post('/api/start', async (req, res) => {
     const fileName = String(body.fileName || 'catalog.xlsx');
     const rows = Array.isArray(body.rows) ? body.rows : [];
     const referer = String(body.referer || '').trim();
+
     const settings = {
       timeoutMs: clampInt(body?.settings?.timeoutMs, 5000, 180000, DEFAULT_SETTINGS.timeoutMs),
       retries: clampInt(body?.settings?.retries, 0, 5, DEFAULT_SETTINGS.retries),
@@ -54,10 +58,13 @@ app.post('/api/start', async (req, res) => {
     };
 
     if (!rows.length) {
-      return res.status(400).json({ ok: false, message: 'Please upload a file with at least one header row.' });
+      return res.status(400).json({
+        ok: false,
+        message: 'Please upload a file with at least one header row.',
+      });
     }
 
-    const job = await createJob({
+    const job = await store.create({
       fileName,
       rows,
       referer,
@@ -68,30 +75,37 @@ app.post('/api/start', async (req, res) => {
 
     setImmediate(() => {
       processJob(job.id).catch((err) => {
-        updateJob(job.id, {
+        store.update(job.id, {
           status: 'error',
           error: err?.message || String(err),
           message: 'Processing failed.',
           updatedAt: Date.now(),
         });
-        logJob(job.id, `ERROR: ${err?.stack || err?.message || String(err)}`);
+        store.log(job.id, `ERROR: ${err?.stack || err?.message || String(err)}`);
       });
     });
   } catch (err) {
-    res.status(500).json({ ok: false, message: err?.message || String(err) });
+    res.status(500).json({
+      ok: false,
+      message: err?.message || String(err),
+    });
   }
 });
 
 app.get('/api/status/:jobId', (req, res) => {
-  const snap = snapshotJob(req.params.jobId);
-  if (!snap) {
-    return res.status(404).json({ ok: false, message: 'Job not found.' });
+  const job = store.snapshot(req.params.jobId);
+  if (!job) {
+    return res.status(404).json({
+      ok: false,
+      message: 'Job not found.',
+    });
   }
-  res.json({ ok: true, ...snap });
+
+  res.json({ ok: true, ...job });
 });
 
 app.get('/api/download/:jobId', async (req, res) => {
-  const job = jobs.get(req.params.jobId);
+  const job = store.get(req.params.jobId);
   if (!job || !job.zipPath) {
     return res.status(404).send('Not ready');
   }
@@ -112,113 +126,17 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`Photo downloader running on port ${PORT}`);
 });
 
-async function createJob({ fileName, rows, referer, settings }) {
-  const jobId = randomId();
-  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'photo-downloader-'));
-
-  const job = {
-    id: jobId,
-    fileName,
-    rows,
-    referer,
-    settings,
-    tempDir,
-
-    status: 'queued',
-    progress: 0,
-    total: 0,
-    done: 0,
-    ready: 0,
-    failed: 0,
-    current: '',
-    message: 'Waiting to start.',
-    error: null,
-
-    startedAt: Date.now(),
-    updatedAt: Date.now(),
-    zipPath: null,
-    downloadName: null,
-    zipSizeBytes: 0,
-    zipSizeText: '—',
-
-    preview: [],
-    logs: [],
-    failedRows: [],
-    errorSummary: makeEmptyErrorSummary(),
-    reportText: '',
-    failedCsv: '',
-    etaMs: 0,
-  };
-
-  jobs.set(jobId, job);
-  return job;
-}
-
-function updateJob(jobId, patch) {
-  const job = jobs.get(jobId);
-  if (!job) return;
-
-  Object.assign(job, patch, {
-    updatedAt: Date.now(),
-  });
-}
-
-function logJob(jobId, message) {
-  const job = jobs.get(jobId);
-  if (!job) return;
-
-  job.logs.push(String(message));
-  if (job.logs.length > 200) {
-    job.logs.splice(0, job.logs.length - 200);
-  }
-  job.updatedAt = Date.now();
-}
-
-function snapshotJob(jobId) {
-  const job = jobs.get(jobId);
-  if (!job) return null;
-
-  return {
-    jobId: job.id,
-    fileName: job.fileName,
-    status: job.status,
-    progress: job.progress,
-    total: job.total,
-    done: job.done,
-    ready: job.ready,
-    failed: job.failed,
-    current: job.current,
-    message: job.message,
-    error: job.error,
-    startedAt: job.startedAt,
-    updatedAt: job.updatedAt,
-    etaMs: job.etaMs,
-
-    preview: job.preview,
-    logs: job.logs.slice(-120),
-    failedRows: job.failedRows,
-    errorSummary: job.errorSummary,
-
-    downloadReady: Boolean(job.zipPath && job.status === 'done'),
-    downloadUrl: job.zipPath ? `/api/download/${job.id}` : null,
-    downloadName: job.downloadName,
-    zipSizeBytes: job.zipSizeBytes,
-    zipSizeText: job.zipSizeText,
-    reportText: job.reportText,
-    failedCsv: job.failedCsv,
-  };
-}
-
 async function processJob(jobId) {
-  const job = jobs.get(jobId);
+  const job = store.get(jobId);
   if (!job) return;
 
   const rows = Array.isArray(job.rows) ? job.rows : [];
   if (rows.length < 1) {
-    updateJob(jobId, {
+    store.update(jobId, {
       status: 'error',
       message: 'No rows found.',
       error: 'No rows found.',
+      updatedAt: Date.now(),
     });
     return;
   }
@@ -231,12 +149,13 @@ async function processJob(jobId) {
   });
 
   if (!dataRows.length) {
-    updateJob(jobId, {
+    store.update(jobId, {
       status: 'error',
       message: 'The file contains only a header row.',
       error: 'The file contains only a header row.',
       preview,
       total: 0,
+      updatedAt: Date.now(),
     });
     return;
   }
@@ -252,7 +171,7 @@ async function processJob(jobId) {
   let ready = 0;
   let failed = 0;
 
-  updateJob(jobId, {
+  store.update(jobId, {
     status: 'processing',
     preview,
     total: dataRows.length,
@@ -263,6 +182,7 @@ async function processJob(jobId) {
     message: 'Processing started.',
     current: 'Preparing tasks...',
     startedAt,
+    updatedAt: Date.now(),
     errorSummary: makeEmptyErrorSummary(),
     failedRows: [],
     etaMs: 0,
@@ -294,7 +214,8 @@ async function processJob(jobId) {
       const current = cursor;
       cursor += 1;
       if (current >= tasks.length) return;
-      await processRowTask(tasks[current]);
+      const task = tasks[current];
+      await processRowTask(task);
     }
   });
 
@@ -311,6 +232,7 @@ async function processJob(jobId) {
   const zipPath = path.join(tempDir, zipName);
   const reportText = reportLines.join('\n');
   const failedCsv = createFailedRowsCsv(failedRows);
+  const errorSummary = summarizeFailures(failedRows);
 
   await buildZip({
     zipPath,
@@ -321,7 +243,7 @@ async function processJob(jobId) {
 
   const zipStats = await fs.stat(zipPath);
 
-  updateJob(jobId, {
+  store.update(jobId, {
     status: 'done',
     progress: 100,
     done: dataRows.length,
@@ -336,11 +258,12 @@ async function processJob(jobId) {
     reportText,
     failedCsv,
     failedRows,
-    errorSummary: summarizeFailures(failedRows),
+    errorSummary,
     etaMs: 0,
+    updatedAt: Date.now(),
   });
 
-  logJob(jobId, `ZIP ready: ${zipName} (${formatBytes(zipStats.size)})`);
+  store.log(jobId, `ZIP ready: ${zipName} (${formatBytes(zipStats.size)})`);
 
   async function processRowTask(task) {
     const row = task.row || [];
@@ -354,11 +277,12 @@ async function processJob(jobId) {
       return;
     }
 
-    updateJob(jobId, {
+    store.update(jobId, {
       current: itemName || imageUrl || `Row ${rowNumber}`,
       message: `Downloading row ${rowNumber}...`,
+      updatedAt: Date.now(),
     });
-    logJob(jobId, `Downloading row ${rowNumber}: ${itemName || '(empty)'}`);
+    store.log(jobId, `Downloading row ${rowNumber}: ${itemName || '(empty)'}`);
 
     if (!itemName || !imageUrl) {
       const error = 'missing item name or URL';
@@ -366,7 +290,7 @@ async function processJob(jobId) {
       const record = makeFailedRow(rowNumber, itemName, imageUrl, error, '');
       failedRows.push(record);
       reportLines.push(`FAIL | Row ${rowNumber}: ${itemName || '(empty)'} -> ${error}`);
-      logJob(jobId, `FAIL: ${itemName || '(empty)'} -> ${error}`);
+      store.log(jobId, `FAIL: ${itemName || '(empty)'} -> ${error}`);
 
       done += 1;
       updateProgress(`Failed row ${rowNumber}`);
@@ -403,14 +327,14 @@ async function processJob(jobId) {
 
       ready += 1;
       reportLines.push(`OK   | ${rowNumber} | ${itemName} | ${filename} | ${result.method}`);
-      logJob(jobId, `OK: ${itemName} -> ${filename} (${result.method})`);
+      store.log(jobId, `OK: ${itemName} -> ${filename} (${result.method})`);
     } catch (err) {
       failed += 1;
       const error = err?.message || String(err);
       const record = makeFailedRow(rowNumber, itemName, imageUrl, error, '');
       failedRows.push(record);
       reportLines.push(`FAIL | Row ${rowNumber}: ${itemName} -> ${error}`);
-      logJob(jobId, `FAIL: ${itemName} -> ${error}`);
+      store.log(jobId, `FAIL: ${itemName} -> ${error}`);
     }
 
     done += 1;
@@ -422,13 +346,14 @@ async function processJob(jobId) {
     const elapsed = Date.now() - startedAt;
     const etaMs = progress > 0 && progress < 100 ? Math.round((elapsed * (100 - progress)) / progress) : 0;
 
-    updateJob(jobId, {
+    store.update(jobId, {
       done,
       ready,
       failed,
       progress,
       current: currentLabel,
       etaMs,
+      updatedAt: Date.now(),
     });
   }
 }
@@ -516,12 +441,4 @@ function clampInt(value, min, max, fallback) {
   const n = Number.parseInt(value, 10);
   if (!Number.isFinite(n)) return fallback;
   return Math.min(max, Math.max(min, n));
-}
-
-function randomId() {
-  try {
-    return crypto.randomUUID();
-  } catch {
-    return `${Date.now()}_${Math.random().toString(16).slice(2)}`;
-  }
 }
