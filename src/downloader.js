@@ -17,49 +17,9 @@ const ACCEPT_IMAGE =
   'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8';
 const ACCEPT_DOCUMENT =
   'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8';
-
-const LANGUAGE_PROFILES = [
-  'bg-BG,bg;q=0.9,en-US;q=0.8,en;q=0.7',
-  'en-US,en;q=0.9,bg;q=0.8',
-  'bg;q=0.9,en;q=0.8',
-];
-
-const UA_PROFILES = [
-  {
-    id: 'chrome',
-    userAgent:
-      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-    extraHeaders: {
-      'sec-ch-ua':
-        '"Chromium";v="124", "Google Chrome";v="124", "Not A(Brand";v="24"',
-      'sec-ch-ua-mobile': '?0',
-      'sec-ch-ua-platform': '"macOS"',
-    },
-  },
-  {
-    id: 'edge',
-    userAgent:
-      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 Edg/124.0.0.0',
-    extraHeaders: {
-      'sec-ch-ua':
-        '"Chromium";v="124", "Microsoft Edge";v="124", "Not A(Brand";v="24"',
-      'sec-ch-ua-mobile': '?0',
-      'sec-ch-ua-platform': '"macOS"',
-    },
-  },
-  {
-    id: 'safari',
-    userAgent:
-      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15',
-    extraHeaders: {},
-  },
-  {
-    id: 'firefox',
-    userAgent:
-      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:127.0) Gecko/20100101 Firefox/127.0',
-    extraHeaders: {},
-  },
-];
+const USER_AGENT =
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
+const ACCEPT_LANGUAGE = 'en-US,en;q=0.9,bg;q=0.8';
 
 async function downloadImage(url, options = {}) {
   const inputUrl = String(url || '').trim();
@@ -90,134 +50,68 @@ async function downloadImage(url, options = {}) {
     };
   }
 
+  const jar = new CookieJar();
   const refererVariants = buildRefererVariants(inputUrl, referer);
 
   let lastError = null;
 
-  for (const profile of buildRequestProfiles()) {
-    const jar = new CookieJar();
+  for (const ref of refererVariants) {
+    try {
+      const result = await tryDownload(inputUrl, {
+        jar,
+        referer: ref,
+        timeoutMs,
+        retries,
+        maxSide,
+        quality,
+      });
 
-    for (const ref of refererVariants) {
-      try {
-        const result = await tryDownloadWithProfile(inputUrl, {
-          profile,
-          referer: ref,
-          jar,
-          timeoutMs,
-          retries,
-          maxSide,
-          quality,
-          depth: 0,
-          visited: new Set(),
-        });
+      if (result) return result;
+    } catch (err) {
+      lastError = err;
+    }
+  }
 
-        if (result) {
-          return result;
-        }
-      } catch (err) {
-        lastError = err;
+  throw new Error(
+    `unsupported or non-image response (${lastError?.message || 'unknown response'})`
+  );
+}
+
+async function tryDownload(url, { jar, referer, timeoutMs, retries, maxSide, quality }) {
+  let lastResource = null;
+
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    try {
+      const resource = await fetchWithFallbacks(url, {
+        jar,
+        referer,
+        timeoutMs,
+      });
+
+      lastResource = resource;
+
+      const result = await inspectResource(resource, {
+        url,
+        referer,
+        jar,
+        timeoutMs,
+        maxSide,
+        quality,
+        depth: 0,
+        visited: new Set(),
+      });
+
+      if (result) return result;
+    } catch (err) {
+      lastResource = { error: err };
+      if (attempt < retries) {
+        await sleep(250 + attempt * 250);
       }
     }
   }
 
-  throw new Error(`unsupported or non-image response (${lastError?.message || 'unknown response'})`);
-}
-
-function buildRequestProfiles() {
-  return UA_PROFILES.map((profile, index) => ({
-    ...profile,
-    acceptLanguage: LANGUAGE_PROFILES[index % LANGUAGE_PROFILES.length],
-  }));
-}
-
-function buildRefererVariants(inputUrl, referer) {
-  const out = [];
-  const push = (value) => {
-    const v = String(value || '').trim();
-    if (!v) return;
-    if (!out.includes(v)) out.push(v);
-  };
-
-  const refs = [referer, getOrigin(referer), getOrigin(inputUrl), ''];
-  refs.forEach((v) => {
-    push(v);
-    const alt = alternateOriginVariants(v);
-    alt.forEach(push);
-  });
-
-  return out;
-}
-
-function alternateOriginVariants(value) {
-  const origin = getOrigin(value);
-  if (!origin) return [];
-
-  try {
-    const u = new URL(origin);
-    const host = u.hostname;
-    const variants = [];
-
-    if (host.startsWith('www.')) {
-      u.hostname = host.replace(/^www\./, '');
-      variants.push(u.origin);
-    } else {
-      u.hostname = `www.${host}`;
-      variants.push(u.origin);
-    }
-
-    return variants;
-  } catch {
-    return [];
-  }
-}
-
-async function tryDownloadWithProfile(url, context) {
-  if ((context.depth || 0) === 0) {
-    try {
-      await requestWithRedirects(url, {
-        method: 'HEAD',
-        accept: ACCEPT_DOCUMENT,
-        profile: context.profile,
-        referer: context.referer,
-        jar: context.jar,
-        timeoutMs: context.timeoutMs,
-        allowHttp2: true,
-        mode: 'document',
-      });
-    } catch {
-      // ignore head probe failures
-    }
-  }
-
-  const attemptPlan = [
-    { method: 'GET', accept: ACCEPT_IMAGE, mode: 'image', referer: context.referer },
-    { method: 'GET', accept: ACCEPT_DOCUMENT, mode: 'document', referer: context.referer },
-    { method: 'GET', accept: ACCEPT_IMAGE, mode: 'image', referer: '' },
-    { method: 'GET', accept: ACCEPT_DOCUMENT, mode: 'document', referer: '' },
-  ];
-
-  for (const attempt of attemptPlan) {
-    const response = await requestWithRedirects(url, {
-      method: attempt.method,
-      accept: attempt.accept,
-      profile: context.profile,
-      referer: attempt.referer,
-      jar: context.jar,
-      timeoutMs: context.timeoutMs,
-      allowHttp2: true,
-      mode: attempt.mode,
-    });
-
-    const result = await inspectResource(response, {
-      ...context,
-      url,
-      referer: attempt.referer,
-      mode: attempt.mode,
-    });
-
-    if (result) {
-      return result;
-    }
+  if (lastResource?.error) {
+    throw lastResource.error;
   }
 
   return null;
@@ -231,7 +125,6 @@ async function inspectResource(resource, context) {
     resource.finalUrl || '',
     resource.status || '',
     context.referer || '',
-    context.profile?.id || '',
   ].join('|');
 
   if (context.visited?.has(fingerprint)) {
@@ -253,7 +146,7 @@ async function inspectResource(resource, context) {
       buffer: normalized.buffer,
       contentType: normalized.contentType,
       finalUrl: resource.finalUrl || context.url,
-      method: `${context.profile.id}-${normalized.method}`,
+      method: normalized.method,
     };
   }
 
@@ -281,24 +174,15 @@ async function inspectResource(resource, context) {
 
   for (const candidate of candidates) {
     for (const ref of candidateReferers) {
-      const candidateKey = `${candidate}|${ref}|${context.profile.id}`;
-      if (context.visited?.has(candidateKey)) {
-        continue;
-      }
-      if (context.visited) {
-        context.visited.add(candidateKey);
-      }
+      const key = `${candidate}|${ref}`;
+      if (context.visited?.has(key)) continue;
+      if (context.visited) context.visited.add(key);
 
       try {
-        const next = await requestWithRedirects(candidate, {
-          method: 'GET',
-          accept: ACCEPT_IMAGE,
-          profile: context.profile,
-          referer: ref,
+        const next = await fetchWithFallbacks(candidate, {
           jar: context.jar,
+          referer: ref,
           timeoutMs: context.timeoutMs,
-          allowHttp2: true,
-          mode: 'image',
         });
 
         const result = await inspectResource(next, {
@@ -308,16 +192,271 @@ async function inspectResource(resource, context) {
           depth: (context.depth || 0) + 1,
         });
 
-        if (result) {
-          return result;
-        }
+        if (result) return result;
       } catch {
-        // keep trying
+        // keep trying other candidates
       }
     }
   }
 
   return null;
+}
+
+async function fetchWithFallbacks(url, { jar, referer, timeoutMs }) {
+  const parsed = safeUrl(url);
+  if (!parsed) {
+    throw new Error('invalid url');
+  }
+
+  const transports = parsed.protocol === 'https:' ? ['http2', 'http1'] : ['http1'];
+
+  let lastErr = null;
+
+  for (const transport of transports) {
+    try {
+      if (transport === 'http2') {
+        return await fetchWithHttp2(parsed, { jar, referer, timeoutMs });
+      }
+      return await fetchWithHttp1(parsed, { jar, referer, timeoutMs });
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+
+  throw lastErr || new Error('request failed');
+}
+
+async function fetchWithHttp1(parsedUrl, { jar, referer, timeoutMs }) {
+  const isHttps = parsedUrl.protocol === 'https:';
+  const lib = isHttps ? https : http;
+
+  const headers = buildHeaders({
+    url: parsedUrl.toString(),
+    referer,
+    accept: ACCEPT_IMAGE,
+    jar,
+    mode: 'image',
+  });
+
+  return new Promise((resolve, reject) => {
+    const req = lib.request(
+      {
+        method: 'GET',
+        hostname: parsedUrl.hostname,
+        port: parsedUrl.port || undefined,
+        path: `${parsedUrl.pathname}${parsedUrl.search}`,
+        headers,
+      },
+      (res) => {
+        collectResponse(res, parsedUrl.toString())
+          .then((result) => {
+            jar.setFromResponse(result.headers['set-cookie'], parsedUrl.toString());
+            resolve(result);
+          })
+          .catch(reject);
+      }
+    );
+
+    req.on('error', reject);
+    req.setTimeout(timeoutMs, () => req.destroy(new Error('timeout')));
+    req.end();
+  });
+}
+
+async function fetchWithHttp2(parsedUrl, { jar, referer, timeoutMs }) {
+  const headers = buildHeaders({
+    url: parsedUrl.toString(),
+    referer,
+    accept: ACCEPT_IMAGE,
+    jar,
+    mode: 'image',
+    http2: true,
+  });
+
+  const authority = parsedUrl.port ? `${parsedUrl.hostname}:${parsedUrl.port}` : parsedUrl.hostname;
+  const client = http2.connect(parsedUrl.origin);
+
+  return new Promise((resolve, reject) => {
+    let closed = false;
+
+    const timer = setTimeout(() => {
+      closed = true;
+      try {
+        client.close();
+      } catch {
+        // ignore
+      }
+      reject(new Error('timeout'));
+    }, timeoutMs);
+
+    client.on('error', (err) => {
+      clearTimeout(timer);
+      try {
+        client.close();
+      } catch {
+        // ignore
+      }
+      reject(err);
+    });
+
+    const req = client.request({
+      ':method': 'GET',
+      ':path': `${parsedUrl.pathname}${parsedUrl.search}`,
+      ':scheme': parsedUrl.protocol.replace(':', ''),
+      ':authority': authority,
+      ...headers,
+    });
+
+    const chunks = [];
+    let responseHeaders = {};
+    let status = 0;
+
+    req.on('response', (hdrs) => {
+      responseHeaders = normalizeHeaders(hdrs);
+      status = Number(responseHeaders[':status'] || hdrs[':status'] || 0);
+    });
+
+    req.on('data', (chunk) => {
+      chunks.push(Buffer.from(chunk));
+    });
+
+    req.on('end', async () => {
+      clearTimeout(timer);
+      try {
+        client.close();
+      } catch {
+        // ignore
+      }
+
+      if (closed) return;
+
+      const rawBody = Buffer.concat(chunks);
+      const body = decodeEncodedBody(rawBody, responseHeaders['content-encoding']);
+      const contentType = responseHeaders['content-type'] || '';
+      const bodyText = looksLikeTextResponse(contentType, body)
+        ? body.toString('utf8')
+        : '';
+
+      jar.setFromResponse(responseHeaders['set-cookie'], parsedUrl.toString());
+
+      resolve({
+        status,
+        headers: responseHeaders,
+        buffer: body,
+        contentType,
+        bodyText,
+        finalUrl: parsedUrl.toString(),
+        httpVersion: '2',
+      });
+    });
+
+    req.on('error', (err) => {
+      clearTimeout(timer);
+      try {
+        client.close();
+      } catch {
+        // ignore
+      }
+      reject(err);
+    });
+
+    req.end();
+  });
+}
+
+async function collectResponse(res, finalUrl) {
+  const chunks = [];
+  for await (const chunk of res) {
+    chunks.push(Buffer.from(chunk));
+  }
+
+  const rawBody = Buffer.concat(chunks);
+  const headers = normalizeHeaders(res.headers || {});
+  const status = Number(res.statusCode || headers[':status'] || 0);
+  const body = decodeEncodedBody(rawBody, headers['content-encoding']);
+  const contentType = headers['content-type'] || '';
+  const bodyText = looksLikeTextResponse(contentType, body)
+    ? body.toString('utf8')
+    : '';
+
+  return {
+    status,
+    headers,
+    buffer: body,
+    contentType,
+    bodyText,
+    finalUrl,
+    httpVersion: res.httpVersion || '1.1',
+  };
+}
+
+function buildHeaders({ url, referer, accept, jar, mode, http2 }) {
+  const origin = getOrigin(referer) || getOrigin(url);
+  const headers = {
+    'user-agent': USER_AGENT,
+    accept,
+    'accept-language': ACCEPT_LANGUAGE,
+    'accept-encoding': 'gzip, deflate, br',
+    'cache-control': 'no-cache',
+    pragma: 'no-cache',
+    dnt: '1',
+    'upgrade-insecure-requests': mode === 'document' ? '1' : '0',
+    'sec-fetch-site': getSecFetchSite(url, referer),
+    'sec-fetch-mode': mode === 'document' ? 'navigate' : 'no-cors',
+    'sec-fetch-dest': mode === 'document' ? 'document' : 'image',
+  };
+
+  if (referer) {
+    headers.referer = referer;
+    if (origin) headers.origin = origin;
+  }
+
+  const cookieHeader = jar?.getHeader(url);
+  if (cookieHeader) {
+    headers.cookie = cookieHeader;
+  }
+
+  if (!http2) {
+    headers.connection = 'keep-alive';
+  }
+
+  return headers;
+}
+
+function buildRefererVariants(inputUrl, referer) {
+  const out = [];
+  const push = (value) => {
+    const v = String(value || '').trim();
+    if (!v) return;
+    if (!out.includes(v)) out.push(v);
+  };
+
+  [referer, getOrigin(referer), getOrigin(inputUrl), ''].forEach((v) => {
+    push(v);
+    alternateOriginVariants(v).forEach(push);
+  });
+
+  return out;
+}
+
+function alternateOriginVariants(value) {
+  const origin = getOrigin(value);
+  if (!origin) return [];
+
+  try {
+    const u = new URL(origin);
+    const host = u.hostname;
+
+    if (host.startsWith('www.')) {
+      u.hostname = host.replace(/^www\./, '');
+      return [u.origin];
+    }
+
+    u.hostname = `www.${host}`;
+    return [u.origin];
+  } catch {
+    return [];
+  }
 }
 
 function buildCandidateReferers(pageUrl, originalReferer) {
@@ -344,7 +483,7 @@ function extractImageCandidates(html, baseUrl) {
     candidates.push(resolveUrl(v, baseUrl));
   };
 
-  const metaRegexes = [
+  const regexes = [
     /<meta[^>]+property=["']og:image(?:\:url)?["'][^>]+content=["']([^"']+)["'][^>]*>/gi,
     /<meta[^>]+name=["']og:image["'][^>]+content=["']([^"']+)["'][^>]*>/gi,
     /<meta[^>]+property=["']twitter:image["'][^>]+content=["']([^"']+)["'][^>]*>/gi,
@@ -353,7 +492,7 @@ function extractImageCandidates(html, baseUrl) {
     /<link[^>]+rel=["'][^"']*image_src[^"']*["'][^>]+href=["']([^"']+)["'][^>]*>/gi,
   ];
 
-  metaRegexes.forEach((regex) => {
+  regexes.forEach((regex) => {
     let match;
     while ((match = regex.exec(html))) {
       add(match[1]);
@@ -371,22 +510,12 @@ function extractImageCandidates(html, baseUrl) {
     /data-lazy-src=["']([^"']+)["']/gi,
     /data-original=["']([^"']+)["']/gi,
     /data-full=["']([^"']+)["']/gi,
-    /data-srcset=["']([^"']+)["']/gi,
   ];
 
   lazyRegexes.forEach((regex) => {
     let match;
     while ((match = regex.exec(html))) {
-      const val = match[1];
-      if (regex.source.includes('srcset')) {
-        String(val)
-          .split(',')
-          .map((s) => s.trim().split(' ')[0])
-          .filter(Boolean)
-          .forEach(add);
-      } else {
-        add(val);
-      }
+      add(match[1]);
     }
   });
 
@@ -423,8 +552,7 @@ function extractImageCandidates(html, baseUrl) {
 
   const jsonLdBlocks = extractJsonLdBlocks(html);
   jsonLdBlocks.forEach((block) => {
-    const urls = extractUrlsFromJsonLd(block, baseUrl);
-    urls.forEach(add);
+    extractUrlsFromJsonLd(block, baseUrl).forEach(add);
   });
 
   const urlRegex = /https?:\/\/[^"'\\\s>]+?\.(?:jpg|jpeg|png|webp|gif|bmp|svg|avif|heic|heif|tiff?)(?:\?[^"'\\\s>]*)?/gi;
@@ -494,18 +622,13 @@ function extractUrlsFromJsonLd(block, baseUrl) {
   };
 
   try {
-    const parsed = JSON.parse(block);
-    walk(parsed);
+    walk(JSON.parse(block));
   } catch {
     const matches = String(block).match(/https?:\/\/[^"'\\\s>]+?\.(?:jpg|jpeg|png|webp|gif|bmp|svg|avif|heic|heif|tiff?)(?:\?[^"'\\\s>]*)?/gi);
     if (matches) matches.forEach(push);
   }
 
   return out;
-}
-
-function looksLikeImageUrl(value) {
-  return /\.(jpg|jpeg|png|webp|gif|bmp|svg|avif|heic|heif|tiff?)(\?|#|$)/i.test(String(value || ''));
 }
 
 function decodeDataUrl(dataUrl) {
@@ -590,272 +713,7 @@ function looksLikeImage(buffer, contentType) {
   return false;
 }
 
-function requestWithRedirects(url, options) {
-  return requestWithRedirectsImpl(url, options, 0);
-}
-
-async function requestWithRedirectsImpl(url, options, redirectCount) {
-  if (redirectCount > MAX_REDIRECTS) {
-    throw new Error('too many redirects');
-  }
-
-  const response = await requestOnce(url, options);
-
-  options.jar?.setFromResponse(response.headers?.['set-cookie'], response.finalUrl || url);
-
-  if (isRedirectStatus(response.status) && response.headers?.location) {
-    const nextUrl = resolveUrl(firstHeader(response.headers.location), response.finalUrl || url);
-    const nextMethod =
-      response.status === 303 || ((response.status === 301 || response.status === 302) && options.method !== 'HEAD')
-        ? 'GET'
-        : options.method;
-
-    const nextOptions = {
-      ...options,
-      method: nextMethod,
-      referer: response.finalUrl || options.referer || url,
-    };
-
-    return requestWithRedirectsImpl(nextUrl, nextOptions, redirectCount + 1);
-  }
-
-  return response;
-}
-
-async function requestOnce(url, options) {
-  const parsed = safeUrl(url);
-  if (!parsed) {
-    throw new Error('invalid url');
-  }
-
-  const useHttp2 = Boolean(options.allowHttp2 !== false && parsed.protocol === 'https:');
-  const transports = useHttp2 ? ['http2', 'http1'] : ['http1'];
-
-  let lastErr = null;
-
-  for (const transport of transports) {
-    try {
-      if (transport === 'http2') {
-        return await requestHttp2(parsed, options);
-      }
-      return await requestHttp1(parsed, options);
-    } catch (err) {
-      lastErr = err;
-    }
-  }
-
-  throw lastErr || new Error('request failed');
-}
-
-async function requestHttp1(parsedUrl, options) {
-  const isHttps = parsedUrl.protocol === 'https:';
-  const lib = isHttps ? https : http;
-  const headers = buildRequestHeaders({
-    url: parsedUrl.toString(),
-    referer: options.referer,
-    profile: options.profile,
-    accept: options.accept,
-    jar: options.jar,
-    method: options.method,
-    mode: options.mode,
-    useHttp2: false,
-  });
-
-  return new Promise((resolve, reject) => {
-    const req = lib.request(
-      {
-        method: options.method,
-        hostname: parsedUrl.hostname,
-        port: parsedUrl.port || undefined,
-        path: `${parsedUrl.pathname}${parsedUrl.search}`,
-        headers,
-      },
-      (res) => {
-        collectResponse(res, parsedUrl.toString())
-          .then(resolve)
-          .catch(reject);
-      }
-    );
-
-    req.on('error', reject);
-    req.setTimeout(options.timeoutMs, () => req.destroy(new Error('timeout')));
-    req.end();
-  });
-}
-
-async function requestHttp2(parsedUrl, options) {
-  const headers = buildRequestHeaders({
-    url: parsedUrl.toString(),
-    referer: options.referer,
-    profile: options.profile,
-    accept: options.accept,
-    jar: options.jar,
-    method: options.method,
-    mode: options.mode,
-    useHttp2: true,
-  });
-
-  const authority = parsedUrl.port ? `${parsedUrl.hostname}:${parsedUrl.port}` : parsedUrl.hostname;
-  const client = http2.connect(parsedUrl.origin);
-
-  return new Promise((resolve, reject) => {
-    let timedOut = false;
-
-    const timer = setTimeout(() => {
-      timedOut = true;
-      try {
-        client.close();
-      } catch {
-        // ignore
-      }
-      reject(new Error('timeout'));
-    }, options.timeoutMs);
-
-    client.on('error', (err) => {
-      clearTimeout(timer);
-      try {
-        client.close();
-      } catch {
-        // ignore
-      }
-      reject(err);
-    });
-
-    const req = client.request({
-      ':method': options.method,
-      ':path': `${parsedUrl.pathname}${parsedUrl.search}`,
-      ':scheme': parsedUrl.protocol.replace(':', ''),
-      ':authority': authority,
-      ...headers,
-    });
-
-    const chunks = [];
-    let responseHeaders = {};
-    let status = 0;
-
-    req.on('response', (headers) => {
-      responseHeaders = normalizeResponseHeaders(headers);
-      status = Number(responseHeaders[':status'] || headers[':status'] || 0);
-    });
-
-    req.on('data', (chunk) => {
-      chunks.push(Buffer.from(chunk));
-    });
-
-    req.on('end', async () => {
-      clearTimeout(timer);
-      try {
-        client.close();
-      } catch {
-        // ignore
-      }
-
-      if (timedOut) return;
-
-      const rawBody = Buffer.concat(chunks);
-      const body = decodeEncodedBody(rawBody, responseHeaders['content-encoding']);
-      const contentType = responseHeaders['content-type'] || '';
-      const bodyText = looksLikeTextResponse(contentType, body)
-        ? body.toString('utf8')
-        : '';
-
-      resolve({
-        status,
-        headers: responseHeaders,
-        buffer: body,
-        contentType,
-        bodyText,
-        finalUrl: parsedUrl.toString(),
-        httpVersion: '2',
-      });
-    });
-
-    req.on('error', (err) => {
-      clearTimeout(timer);
-      try {
-        client.close();
-      } catch {
-        // ignore
-      }
-      reject(err);
-    });
-
-    req.end();
-  });
-}
-
-async function collectResponse(res, finalUrl) {
-  const rawChunks = [];
-  for await (const chunk of res) {
-    rawChunks.push(Buffer.from(chunk));
-  }
-
-  const rawBody = Buffer.concat(rawChunks);
-  const headers = normalizeResponseHeaders(res.headers || {});
-  const status = Number(res.statusCode || headers[':status'] || 0);
-  const body = decodeEncodedBody(rawBody, headers['content-encoding']);
-  const contentType = headers['content-type'] || '';
-  const bodyText = looksLikeTextResponse(contentType, body)
-    ? body.toString('utf8')
-    : '';
-
-  return {
-    status,
-    headers,
-    buffer: body,
-    contentType,
-    bodyText,
-    finalUrl,
-    httpVersion: res.httpVersion || '1.1',
-  };
-}
-
-function buildRequestHeaders({
-  url,
-  referer,
-  profile,
-  accept,
-  jar,
-  method,
-  mode,
-  useHttp2,
-}) {
-  const origin = getOrigin(referer) || getOrigin(url);
-  const headers = {
-    'user-agent': profile.userAgent,
-    accept,
-    'accept-language': profile.acceptLanguage,
-    'accept-encoding': 'gzip, deflate, br',
-    'cache-control': 'no-cache',
-    pragma: 'no-cache',
-    dnt: '1',
-    'upgrade-insecure-requests': mode === 'document' ? '1' : '0',
-    'sec-fetch-site': getSecFetchSite(url, referer),
-    'sec-fetch-mode': mode === 'document' ? 'navigate' : 'no-cors',
-    'sec-fetch-dest': mode === 'document' ? 'document' : 'image',
-    ...profile.extraHeaders,
-  };
-
-  if (referer) {
-    headers.referer = referer;
-    if (origin) {
-      headers.origin = origin;
-    }
-  }
-
-  const cookieHeader = jar?.getHeader(url);
-  if (cookieHeader) {
-    headers.cookie = cookieHeader;
-  }
-
-  if (!useHttp2 && method !== 'HEAD') {
-    headers.connection = 'keep-alive';
-  }
-
-  return headers;
-}
-
-function normalizeResponseHeaders(headers) {
+function normalizeHeaders(headers) {
   const out = {};
   for (const [key, value] of Object.entries(headers || {})) {
     const lower = String(key).toLowerCase();
@@ -895,8 +753,145 @@ function decodeEncodedBody(buffer, encoding) {
   return buffer;
 }
 
+function getOrigin(value) {
+  try {
+    return new URL(String(value || '')).origin;
+  } catch {
+    return '';
+  }
+}
+
+function getSecFetchSite(url, referer) {
+  const target = getOrigin(url);
+  const ref = getOrigin(referer);
+
+  if (!ref) return 'none';
+  if (ref === target) return 'same-origin';
+  return 'cross-site';
+}
+
+function resolveUrl(candidate, baseUrl) {
+  const value = String(candidate || '').trim();
+  if (!value) return value;
+
+  if (/^https?:\/\//i.test(value)) return value;
+  if (/^\/\//.test(value)) {
+    const proto = String(baseUrl || '').startsWith('https:') ? 'https:' : 'http:';
+    return `${proto}${value}`;
+  }
+
+  try {
+    return new URL(value, baseUrl).toString();
+  } catch {
+    return value;
+  }
+}
+
+function safeUrl(value) {
+  try {
+    return new URL(String(value || ''));
+  } catch {
+    return null;
+  }
+}
+
+function clampInt(value, min, max, fallback) {
+  const n = Number.parseInt(value, 10);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(max, Math.max(min, n));
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function firstHeader(value) {
+  return Array.isArray(value) ? value[0] : value;
+}
+
 function isRedirectStatus(status) {
   return [301, 302, 303, 307, 308].includes(Number(status));
+}
+
+function alternateOriginVariants(value) {
+  const origin = getOrigin(value);
+  if (!origin) return [];
+
+  try {
+    const u = new URL(origin);
+    const host = u.hostname;
+
+    if (host.startsWith('www.')) {
+      u.hostname = host.replace(/^www\./, '');
+      return [u.origin];
+    }
+
+    u.hostname = `www.${host}`;
+    return [u.origin];
+  } catch {
+    return [];
+  }
+}
+
+function buildCandidateReferers(pageUrl, originalReferer) {
+  const out = [];
+  const push = (value) => {
+    const v = String(value || '').trim();
+    if (!v) return;
+    if (!out.includes(v)) out.push(v);
+  };
+
+  push(pageUrl);
+  push(originalReferer);
+  push(getOrigin(pageUrl));
+  push('');
+  return out;
+}
+
+function buildHeadersForCookieAwareRequest(url, referer, jar, mode) {
+  const origin = getOrigin(referer) || getOrigin(url);
+  const headers = {
+    'user-agent': USER_AGENT,
+    accept: mode === 'document' ? ACCEPT_DOCUMENT : ACCEPT_IMAGE,
+    'accept-language': ACCEPT_LANGUAGE,
+    'accept-encoding': 'gzip, deflate, br',
+    'cache-control': 'no-cache',
+    pragma: 'no-cache',
+    dnt: '1',
+    'upgrade-insecure-requests': mode === 'document' ? '1' : '0',
+    'sec-fetch-site': getSecFetchSite(url, referer),
+    'sec-fetch-mode': mode === 'document' ? 'navigate' : 'no-cors',
+    'sec-fetch-dest': mode === 'document' ? 'document' : 'image',
+  };
+
+  if (referer) {
+    headers.referer = referer;
+    if (origin) headers.origin = origin;
+  }
+
+  const cookieHeader = jar?.getHeader(url);
+  if (cookieHeader) {
+    headers.cookie = cookieHeader;
+  }
+
+  return headers;
+}
+
+function domainMatches(host, domain, hostOnly) {
+  const h = String(host || '').toLowerCase();
+  const d = String(domain || '').toLowerCase();
+  if (!h || !d) return false;
+
+  if (hostOnly) return h === d;
+  return h === d || h.endsWith(`.${d}`);
+}
+
+function safeHostname(value) {
+  try {
+    return new URL(String(value || '')).hostname.toLowerCase();
+  } catch {
+    return '';
+  }
 }
 
 class CookieJar {
@@ -993,9 +988,7 @@ function parseSetCookie(raw, defaultHost) {
       cookie.secure = true;
     } else if (k === 'expires' && v) {
       const expires = Date.parse(v);
-      if (Number.isFinite(expires)) {
-        cookie.expires = expires;
-      }
+      if (Number.isFinite(expires)) cookie.expires = expires;
     } else if (k === 'max-age' && v) {
       const seconds = Number.parseInt(v, 10);
       if (Number.isFinite(seconds)) {
@@ -1009,97 +1002,6 @@ function parseSetCookie(raw, defaultHost) {
   }
 
   return cookie;
-}
-
-function domainMatches(host, domain, hostOnly) {
-  const h = String(host || '').toLowerCase();
-  const d = String(domain || '').toLowerCase();
-  if (!h || !d) return false;
-
-  if (hostOnly) {
-    return h === d;
-  }
-
-  return h === d || h.endsWith(`.${d}`);
-}
-
-function safeHostname(value) {
-  try {
-    return new URL(String(value || '')).hostname.toLowerCase();
-  } catch {
-    return '';
-  }
-}
-
-function safeUrl(value) {
-  try {
-    return new URL(String(value || ''));
-  } catch {
-    return null;
-  }
-}
-
-function getOrigin(value) {
-  try {
-    return new URL(String(value || '')).origin;
-  } catch {
-    return '';
-  }
-}
-
-function getSecFetchSite(url, referer) {
-  const target = getOrigin(url);
-  const ref = getOrigin(referer);
-
-  if (!ref) return 'none';
-  if (ref === target) return 'same-origin';
-  return 'cross-site';
-}
-
-function resolveUrl(candidate, baseUrl) {
-  const value = String(candidate || '').trim();
-  if (!value) return value;
-
-  if (/^https?:\/\//i.test(value)) return value;
-  if (/^\/\//.test(value)) {
-    const proto = String(baseUrl || '').startsWith('https:') ? 'https:' : 'http:';
-    return `${proto}${value}`;
-  }
-
-  try {
-    return new URL(value, baseUrl).toString();
-  } catch {
-    return value;
-  }
-}
-
-function normalizeError(err) {
-  const message = String(err?.message || err || 'download failed').toLowerCase();
-
-  if (
-    message.includes('aborted') ||
-    message.includes('timeout') ||
-    message.includes('timed out') ||
-    message.includes('etimedout')
-  ) {
-    return 'timeout';
-  }
-
-  return String(err?.message || err || 'download failed');
-}
-
-function clampInt(value, min, max, fallback) {
-  const n = Number.parseInt(value, 10);
-  if (!Number.isFinite(n)) return fallback;
-  return Math.min(max, Math.max(min, n));
-}
-
-function firstHeader(value) {
-  return Array.isArray(value) ? value[0] : value;
-}
-
-function looksLikeImageUrl(value) {
-  return /\.(jpg|jpeg|png|webp|gif|bmp|svg|avif|heic|heif|tiff?)(\?|#|$)/i.test(String(value || ''));
 }
 
 module.exports = {
