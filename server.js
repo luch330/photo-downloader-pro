@@ -33,12 +33,22 @@ const DEFAULT_SETTINGS = {
 const jobs = new Map();
 
 app.disable('x-powered-by');
+app.disable('etag');
 app.use(helmet({ contentSecurityPolicy: false }));
 app.use(compression());
 app.use(morgan('dev'));
 app.use(express.json({ limit: '25mb' }));
 app.use(express.urlencoded({ extended: true, limit: '25mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
+
+app.use('/api/status', (_req, res, next) => {
+  res.set({
+    'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+    Pragma: 'no-cache',
+    Expires: '0',
+  });
+  next();
+});
 
 app.get('/health', (_req, res) => {
   res.json({
@@ -109,7 +119,7 @@ app.get('/api/status/:jobId', (req, res) => {
     });
   }
 
-  res.json({ ok: true, ...snapshot });
+  return res.status(200).json({ ok: true, ...snapshot });
 });
 
 app.get('/api/download/:jobId', async (req, res) => {
