@@ -1,10 +1,17 @@
 const { Buffer } = require('buffer');
+const http = require('http');
+const https = require('https');
+const http2 = require('http2');
+const zlib = require('zlib');
+
 const { normalizeImage } = require('./imageProcessor');
 
 const DEFAULT_TIMEOUT_MS = 45000;
 const DEFAULT_RETRIES = 2;
 const DEFAULT_MAX_SIDE = 3000;
 const DEFAULT_QUALITY = 92;
+const MAX_HTML_DEPTH = 2;
+const MAX_REDIRECTS = 6;
 
 const ACCEPT_IMAGE =
   'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8';
@@ -89,11 +96,14 @@ async function downloadImage(url, options = {}) {
   let lastError = null;
 
   for (const profile of profiles) {
+    const jar = new CookieJar();
+
     for (const ref of refererVariants) {
       try {
         const result = await fetchAndInspect(inputUrl, {
           profile,
           referer: ref,
+          jar,
           timeoutMs,
           retries,
           maxSide,
@@ -124,7 +134,6 @@ function buildRequestProfiles() {
 
 function buildRefererVariants(inputUrl, referer) {
   const out = [];
-
   const push = (value) => {
     const v = String(value || '').trim();
     if (!v) return;
@@ -135,96 +144,59 @@ function buildRefererVariants(inputUrl, referer) {
   push(getOrigin(referer));
   push(getOrigin(inputUrl));
   push('');
-
   return out;
 }
 
 async function fetchAndInspect(url, context) {
-  const resource = await fetchWithRetries(url, {
-    profile: context.profile,
-    referer: context.referer,
-    timeoutMs: context.timeoutMs,
-    retries: context.retries,
-  });
-
-  return inspectResource(resource, {
-    ...context,
-    url,
-  });
-}
-
-async function fetchWithRetries(url, { profile, referer, timeoutMs, retries }) {
-  let lastError = null;
-
-  for (let attempt = 0; attempt <= retries; attempt += 1) {
+  if ((context.depth || 0) === 0) {
     try {
-      return await fetchOnce(url, { profile, referer, timeoutMs });
-    } catch (err) {
-      lastError = err;
-      if (attempt < retries) {
-        await sleep(250 + attempt * 250);
-      }
+      await requestWithRedirects(url, {
+        method: 'HEAD',
+        accept: ACCEPT_DOCUMENT,
+        profile: context.profile,
+        referer: context.referer,
+        jar: context.jar,
+        timeoutMs: context.timeoutMs,
+        allowHttp2: true,
+        mode: 'document',
+      });
+    } catch {
+      // ignore head probe failures
     }
   }
 
-  throw lastError || new Error('download failed');
-}
+  const modes = [
+    { accept: ACCEPT_IMAGE, mode: 'image', referer: context.referer },
+    { accept: ACCEPT_DOCUMENT, mode: 'document', referer: context.referer },
+    { accept: ACCEPT_IMAGE, mode: 'image', referer: '' },
+    { accept: ACCEPT_DOCUMENT, mode: 'document', referer: '' },
+  ];
 
-async function fetchOnce(url, { profile, referer, timeoutMs }) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(new Error('timeout')), timeoutMs);
-
-  try {
-    const headers = {
-      'User-Agent': profile.userAgent,
-      Accept: ACCEPT_IMAGE,
-      'Accept-Language': profile.acceptLanguage,
-      'Accept-Encoding': 'gzip, deflate, br',
-      'Cache-Control': 'no-cache',
-      Pragma: 'no-cache',
-      DNT: '1',
-      'Upgrade-Insecure-Requests': '1',
-      'Sec-Fetch-Site': getSecFetchSite(url, referer),
-      'Sec-Fetch-Mode': 'no-cors',
-      'Sec-Fetch-Dest': 'image',
-      ...profile.extraHeaders,
-    };
-
-    if (referer) {
-      headers.Referer = referer;
-    }
-
-    const response = await fetch(url, {
+  for (const mode of modes) {
+    const resource = await requestWithRedirects(url, {
       method: 'GET',
-      headers,
-      redirect: 'follow',
-      signal: controller.signal,
+      accept: mode.accept,
+      profile: context.profile,
+      referer: mode.referer,
+      jar: context.jar,
+      timeoutMs: context.timeoutMs,
+      allowHttp2: true,
+      mode: mode.mode,
     });
 
-    const contentType = response.headers.get('content-type') || '';
-    const finalUrl = response.url || url;
-    const status = response.status;
-    const arrayBuffer = await response.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
+    const result = await inspectResource(resource, {
+      ...context,
+      url,
+      referer: mode.referer,
+      mode: mode.mode,
+    });
 
-    let bodyText = '';
-    if (looksLikeTextResponse(contentType, buffer)) {
-      bodyText = buffer.toString('utf8');
+    if (result) {
+      return result;
     }
-
-    return {
-      buffer,
-      contentType,
-      finalUrl,
-      status,
-      bodyText,
-      headers: response.headers,
-    };
-  } catch (err) {
-    throw new Error(normalizeError(err));
-  } finally {
-    clearTimeout(timer);
   }
+
+  return null;
 }
 async function inspectResource(resource, context) {
   if (!resource) return null;
@@ -260,11 +232,16 @@ async function inspectResource(resource, context) {
     };
   }
 
-  const canParseHtml =
+  const looksHtml =
     looksLikeHtml(resource.contentType, resource.bodyText) ||
-    (resource.bodyText && resource.bodyText.length > 0 && resource.status >= 400);
+    (resource.bodyText && resource.bodyText.length > 0) ||
+    resource.status >= 400;
 
-  if (!canParseHtml) {
+  if (!looksHtml) {
+    return null;
+  }
+
+  if ((context.depth || 0) >= MAX_HTML_DEPTH) {
     return null;
   }
 
@@ -288,11 +265,15 @@ async function inspectResource(resource, context) {
       }
 
       try {
-        const next = await fetchWithRetries(candidate, {
+        const next = await requestWithRedirects(candidate, {
+          method: 'GET',
+          accept: ACCEPT_IMAGE,
           profile: context.profile,
           referer: ref,
+          jar: context.jar,
           timeoutMs: context.timeoutMs,
-          retries: 1,
+          allowHttp2: true,
+          mode: 'image',
         });
 
         const result = await inspectResource(next, {
@@ -326,7 +307,6 @@ function buildCandidateReferers(pageUrl, originalReferer) {
   push(originalReferer);
   push(getOrigin(pageUrl));
   push('');
-
   return out;
 }
 
@@ -487,6 +467,448 @@ function looksLikeImage(buffer, contentType) {
 
   return false;
 }
+function buildRequestHeaders({
+  url,
+  referer,
+  profile,
+  accept,
+  jar,
+  method,
+  mode,
+  useHttp2,
+}) {
+  const origin = getOrigin(referer) || getOrigin(url);
+  const headers = {
+    'user-agent': profile.userAgent,
+    accept,
+    'accept-language': profile.acceptLanguage,
+    'accept-encoding': 'gzip, deflate, br',
+    'cache-control': 'no-cache',
+    pragma: 'no-cache',
+    dnt: '1',
+    'upgrade-insecure-requests': mode === 'document' ? '1' : '0',
+    'sec-fetch-site': getSecFetchSite(url, referer),
+    'sec-fetch-mode': mode === 'document' ? 'navigate' : 'no-cors',
+    'sec-fetch-dest': mode === 'document' ? 'document' : 'image',
+    ...profile.extraHeaders,
+  };
+
+  if (referer) {
+    headers.referer = referer;
+    if (origin) {
+      headers.origin = origin;
+    }
+  }
+
+  const cookieHeader = jar?.getHeader(url);
+  if (cookieHeader) {
+    headers.cookie = cookieHeader;
+  }
+
+  if (!useHttp2 && method !== 'HEAD') {
+    headers.connection = 'keep-alive';
+  }
+
+  return headers;
+}
+
+async function requestWithRedirects(url, options) {
+  let currentUrl = String(url || '');
+  let method = String(options.method || 'GET').toUpperCase();
+  let lastResponse = null;
+
+  for (let redirectCount = 0; redirectCount < MAX_REDIRECTS; redirectCount += 1) {
+    const response = await requestOnce(currentUrl, {
+      ...options,
+      method,
+    });
+
+    lastResponse = response;
+    options.jar?.setFromResponse(response.headers?.['set-cookie'], currentUrl);
+
+    if (isRedirectStatus(response.status) && response.headers?.location) {
+      currentUrl = resolveUrl(response.headers.location, currentUrl);
+
+      if (response.status === 303 || ((response.status === 301 || response.status === 302) && method !== 'HEAD')) {
+        method = 'GET';
+      }
+
+      continue;
+    }
+
+    return response;
+  }
+
+  return lastResponse;
+}
+
+async function requestOnce(url, options) {
+  const parsed = new URL(url);
+  const useHttp2 = Boolean(options.allowHttp2 !== false && parsed.protocol === 'https:');
+  const candidates = useHttp2 ? ['http2', 'http1'] : ['http1'];
+
+  let lastErr = null;
+
+  for (const transport of candidates) {
+    try {
+      if (transport === 'http2') {
+        return await requestHttp2(parsed, options);
+      }
+
+      return await requestHttp1(parsed, options);
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+
+  throw lastErr || new Error('request failed');
+}
+
+async function requestHttp1(parsedUrl, options) {
+  const isHttps = parsedUrl.protocol === 'https:';
+  const lib = isHttps ? https : http;
+  const headers = buildRequestHeaders({
+    url: parsedUrl.toString(),
+    referer: options.referer,
+    profile: options.profile,
+    accept: options.accept,
+    jar: options.jar,
+    method: options.method,
+    mode: options.mode,
+    useHttp2: false,
+  });
+
+  return new Promise((resolve, reject) => {
+    const req = lib.request(
+      {
+        method: options.method,
+        hostname: parsedUrl.hostname,
+        port: parsedUrl.port || undefined,
+        path: `${parsedUrl.pathname}${parsedUrl.search}`,
+        headers,
+      },
+      (res) => {
+        collectResponse(res, parsedUrl.toString())
+          .then(resolve)
+          .catch(reject);
+      }
+    );
+
+    req.on('error', reject);
+    req.setTimeout(options.timeoutMs, () => req.destroy(new Error('timeout')));
+    req.end();
+  });
+}
+
+async function requestHttp2(parsedUrl, options) {
+  const headers = buildRequestHeaders({
+    url: parsedUrl.toString(),
+    referer: options.referer,
+    profile: options.profile,
+    accept: options.accept,
+    jar: options.jar,
+    method: options.method,
+    mode: options.mode,
+    useHttp2: true,
+  });
+
+  const authority = parsedUrl.port ? `${parsedUrl.hostname}:${parsedUrl.port}` : parsedUrl.hostname;
+  const client = http2.connect(parsedUrl.origin);
+
+  return new Promise((resolve, reject) => {
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      try {
+        client.close();
+      } catch {
+        // ignore
+      }
+      reject(new Error('timeout'));
+    }, options.timeoutMs);
+
+    client.on('error', (err) => {
+      clearTimeout(timer);
+      try {
+        client.close();
+      } catch {
+        // ignore
+      }
+      reject(err);
+    });
+
+    const req = client.request({
+      ':method': options.method,
+      ':path': `${parsedUrl.pathname}${parsedUrl.search}`,
+      ':scheme': parsedUrl.protocol.replace(':', ''),
+      ':authority': authority,
+      ...headers,
+    });
+
+    const chunks = [];
+    let responseHeaders = {};
+    let status = 0;
+
+    req.on('response', (headers) => {
+      responseHeaders = normalizeResponseHeaders(headers);
+      status = Number(responseHeaders[':status'] || headers[':status'] || 0);
+    });
+
+    req.on('data', (chunk) => {
+      chunks.push(Buffer.from(chunk));
+    });
+
+    req.on('end', async () => {
+      clearTimeout(timer);
+      try {
+        client.close();
+      } catch {
+        // ignore
+      }
+
+      if (timedOut) return;
+
+      const rawBody = Buffer.concat(chunks);
+      const body = decodeEncodedBody(rawBody, responseHeaders['content-encoding']);
+      const contentType = responseHeaders['content-type'] || '';
+      const bodyText = looksLikeTextResponse(contentType, body)
+        ? body.toString('utf8')
+        : '';
+
+      resolve({
+        status,
+        headers: responseHeaders,
+        buffer: body,
+        contentType,
+        bodyText,
+        finalUrl: parsedUrl.toString(),
+        httpVersion: '2',
+      });
+    });
+
+    req.on('error', (err) => {
+      clearTimeout(timer);
+      try {
+        client.close();
+      } catch {
+        // ignore
+      }
+      reject(err);
+    });
+
+    req.end();
+  });
+}
+
+async function collectResponse(res, finalUrl) {
+  const rawChunks = [];
+  for await (const chunk of res) {
+    rawChunks.push(Buffer.from(chunk));
+  }
+
+  const rawBody = Buffer.concat(rawChunks);
+  const headers = normalizeResponseHeaders(res.headers || {});
+  const status = Number(res.statusCode || headers[':status'] || 0);
+  const body = decodeEncodedBody(rawBody, headers['content-encoding']);
+  const contentType = headers['content-type'] || '';
+  const bodyText = looksLikeTextResponse(contentType, body)
+    ? body.toString('utf8')
+    : '';
+
+  return {
+    status,
+    headers,
+    buffer: body,
+    contentType,
+    bodyText,
+    finalUrl,
+    httpVersion: res.httpVersion || '1.1',
+  };
+}
+
+function normalizeResponseHeaders(headers) {
+  const out = {};
+  for (const [key, value] of Object.entries(headers || {})) {
+    const lower = String(key).toLowerCase();
+    if (Array.isArray(value)) {
+      out[lower] = value;
+    } else {
+      out[lower] = value;
+    }
+  }
+  return out;
+}
+
+function decodeEncodedBody(buffer, encoding) {
+  const enc = String(encoding || '').toLowerCase().trim();
+  if (!buffer || !buffer.length) {
+    return buffer;
+  }
+
+  try {
+    if (enc.includes('br') && zlib.brotliDecompressSync) {
+      return zlib.brotliDecompressSync(buffer);
+    }
+    if (enc.includes('gzip')) {
+      return zlib.gunzipSync(buffer);
+    }
+    if (enc.includes('deflate')) {
+      try {
+        return zlib.inflateSync(buffer);
+      } catch {
+        return zlib.inflateRawSync(buffer);
+      }
+    }
+  } catch {
+    return buffer;
+  }
+
+  return buffer;
+}
+
+function isRedirectStatus(status) {
+  return [301, 302, 303, 307, 308].includes(Number(status));
+}
+
+class CookieJar {
+  constructor() {
+    this.cookies = [];
+  }
+
+  setFromResponse(setCookie, requestUrl) {
+    const list = Array.isArray(setCookie)
+      ? setCookie
+      : setCookie
+        ? [setCookie]
+        : [];
+
+    const host = safeHostname(requestUrl);
+    if (!host) return;
+
+    for (const raw of list) {
+      const parsed = parseSetCookie(raw, host, requestUrl);
+      if (!parsed) continue;
+
+      this.cookies = this.cookies.filter((cookie) => {
+        return !(
+          cookie.name === parsed.name &&
+          cookie.domain === parsed.domain &&
+          cookie.path === parsed.path
+        );
+      });
+
+      if (!parsed.expired) {
+        this.cookies.push(parsed);
+      }
+    }
+  }
+
+  getHeader(requestUrl) {
+    const u = safeUrl(requestUrl);
+    if (!u) return '';
+
+    const now = Date.now();
+    const host = u.hostname.toLowerCase();
+    const path = u.pathname || '/';
+    const isSecure = u.protocol === 'https:';
+
+    const parts = this.cookies
+      .filter((cookie) => {
+        if (cookie.expires && cookie.expires <= now) return false;
+        if (cookie.secure && !isSecure) return false;
+        if (!domainMatches(host, cookie.domain, cookie.hostOnly)) return false;
+        if (!path.startsWith(cookie.path)) return false;
+        return true;
+      })
+      .map((cookie) => `${cookie.name}=${cookie.value}`);
+
+    return parts.join('; ');
+  }
+}
+
+function parseSetCookie(raw, defaultHost, requestUrl) {
+  const text = String(raw || '').trim();
+  if (!text) return null;
+
+  const segments = text.split(';').map((s) => s.trim());
+  const [nameValue, ...attrs] = segments;
+  const eqIndex = nameValue.indexOf('=');
+  if (eqIndex <= 0) return null;
+
+  const name = nameValue.slice(0, eqIndex).trim();
+  const value = nameValue.slice(eqIndex + 1).trim();
+  if (!name) return null;
+
+  const cookie = {
+    name,
+    value,
+    domain: defaultHost.toLowerCase(),
+    hostOnly: true,
+    path: '/',
+    secure: false,
+    expires: null,
+    expired: false,
+  };
+
+  for (const attr of attrs) {
+    const [kRaw, ...rest] = attr.split('=');
+    const k = kRaw.trim().toLowerCase();
+    const v = rest.join('=').trim();
+
+    if (k === 'domain' && v) {
+      cookie.domain = v.replace(/^\./, '').toLowerCase();
+      cookie.hostOnly = false;
+    } else if (k === 'path' && v) {
+      cookie.path = v.startsWith('/') ? v : `/${v}`;
+    } else if (k === 'secure') {
+      cookie.secure = true;
+    } else if (k === 'expires' && v) {
+      const expires = Date.parse(v);
+      if (Number.isFinite(expires)) {
+        cookie.expires = expires;
+      }
+    } else if (k === 'max-age' && v) {
+      const seconds = Number.parseInt(v, 10);
+      if (Number.isFinite(seconds)) {
+        cookie.expires = Date.now() + seconds * 1000;
+      }
+    }
+  }
+
+  if (cookie.expires && cookie.expires <= Date.now()) {
+    cookie.expired = true;
+  }
+
+  return cookie;
+}
+
+function domainMatches(host, domain, hostOnly) {
+  const h = String(host || '').toLowerCase();
+  const d = String(domain || '').toLowerCase();
+  if (!h || !d) return false;
+
+  if (hostOnly) {
+    return h === d;
+  }
+
+  return h === d || h.endsWith(`.${d}`);
+}
+
+function safeHostname(value) {
+  try {
+    return new URL(String(value || '')).hostname.toLowerCase();
+  } catch {
+    return '';
+  }
+}
+
+function safeUrl(value) {
+  try {
+    return new URL(String(value || ''));
+  } catch {
+    return null;
+  }
+}
 
 function getOrigin(value) {
   try {
@@ -504,6 +926,7 @@ function getSecFetchSite(url, referer) {
   if (ref === target) return 'same-origin';
   return 'cross-site';
 }
+
 function resolveUrl(candidate, baseUrl) {
   const value = String(candidate || '').trim();
   if (!value) return value;
