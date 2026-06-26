@@ -73,6 +73,16 @@ const MODE_PRESETS = {
   },
 };
 
+const TIMELINE_STEPS = [
+  { key: 'upload', label: 'Upload', detail: 'Pick an Excel file' },
+  { key: 'read', label: 'Read Excel', detail: 'Parse rows' },
+  { key: 'detect', label: 'Auto-detect', detail: 'Map columns' },
+  { key: 'download', label: 'Download', detail: 'Fetch images' },
+  { key: 'normalize', label: 'Normalize', detail: 'Process formats' },
+  { key: 'zip', label: 'Build ZIP', detail: 'Package files' },
+  { key: 'done', label: 'Done', detail: 'ZIP ready' },
+];
+
 let selectedFile = null;
 let parsedRows = [];
 let originalRows = [];
@@ -84,6 +94,15 @@ let currentMode = 'balanced';
 let lastFailedRows = [];
 let lastErrorSummary = null;
 let detectedColumns = null;
+let lastStatusSnapshot = null;
+let lastSample = null;
+let smoothedSpeed = 0;
+let dashboardRefs = {};
+let dashboardReady = false;
+
+injectEnhancementStyles();
+createFloatingBackground();
+setupDashboardShell();
 
 loadTheme();
 loadSavedSettings();
@@ -98,48 +117,67 @@ renderErrorSummary({
   nonImage: 0,
   other: 0,
 });
+renderTimeline('idle', 'Ready');
+updateDashboardMetrics({
+  fileName: '—',
+  rows: 0,
+  ready: 0,
+  failed: 0,
+  speed: 0,
+  avgMs: 0,
+  eta: '—',
+  progress: 0,
+  stage: 'idle',
+});
 
-chooseBtn.addEventListener('click', () => fileInput.click());
-modeBadge.addEventListener('click', openSettings);
-settingsBtn.addEventListener('click', openSettings);
-themeBtn.addEventListener('click', toggleTheme);
+chooseBtn?.addEventListener('click', () => fileInput.click());
+settingsBtn?.addEventListener('click', openSettings);
+themeBtn?.addEventListener('click', toggleTheme);
 
-dropzone.addEventListener('click', (e) => {
+if (modeBadge) {
+  modeBadge.classList.add('mode-badge-static');
+  modeBadge.setAttribute('aria-disabled', 'true');
+  modeBadge.tabIndex = -1;
+}
+
+dropzone?.addEventListener('click', (e) => {
   const interactive = e.target.closest('button, input, select, textarea, label, summary, a');
   if (interactive) return;
   fileInput.click();
 });
 
-dropzone.addEventListener('keydown', (e) => {
+dropzone?.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' || e.key === ' ') {
     e.preventDefault();
     fileInput.click();
   }
 });
 
-fileInput.addEventListener('change', () => {
+fileInput?.addEventListener('change', () => {
   if (fileInput.files && fileInput.files[0]) {
     loadFile(fileInput.files[0]);
   }
 });
 
 ['dragenter', 'dragover'].forEach((evt) => {
-  dropzone.addEventListener(evt, (e) => {
+  dropzone?.addEventListener(evt, (e) => {
     e.preventDefault();
     e.stopPropagation();
     dropzone.classList.add('dragover');
+    document.body.classList.add('is-dragging');
   });
 });
 
 ['dragleave', 'drop'].forEach((evt) => {
-  dropzone.addEventListener(evt, (e) => {
+  dropzone?.addEventListener(evt, (e) => {
     e.preventDefault();
     e.stopPropagation();
     dropzone.classList.remove('dragover');
+    document.body.classList.remove('is-dragging');
   });
 });
 
-dropzone.addEventListener('drop', (e) => {
+dropzone?.addEventListener('drop', (e) => {
   const file = e.dataTransfer.files && e.dataTransfer.files[0];
   if (!file) return;
   selectedFile = file;
@@ -149,27 +187,27 @@ dropzone.addEventListener('drop', (e) => {
   runBtn.disabled = false;
 });
 
-runBtn.addEventListener('click', startUpload);
-retryFailedBtn.addEventListener('click', retryFailed);
-successRetryBtn.addEventListener('click', retryFailed);
-viewErrorsBtn.addEventListener('click', () => {
+runBtn?.addEventListener('click', startUpload);
+retryFailedBtn?.addEventListener('click', retryFailed);
+successRetryBtn?.addEventListener('click', retryFailed);
+viewErrorsBtn?.addEventListener('click', () => {
   if (errorSummaryCard) {
     errorSummaryCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 });
-closeSuccessBtn.addEventListener('click', closeSuccess);
-successScreen.addEventListener('click', (e) => {
+closeSuccessBtn?.addEventListener('click', closeSuccess);
+successScreen?.addEventListener('click', (e) => {
   if (e.target === successScreen) closeSuccess();
 });
-settingsModal.addEventListener('click', (e) => {
+settingsModal?.addEventListener('click', (e) => {
   if (e.target === settingsModal) closeSettings();
 });
-closeSettingsBtn.addEventListener('click', closeSettings);
-saveSettingsBtn.addEventListener('click', () => {
+closeSettingsBtn?.addEventListener('click', closeSettings);
+saveSettingsBtn?.addEventListener('click', () => {
   saveCurrentSettings();
   closeSettings();
 });
-resetSettingsBtn.addEventListener('click', () => {
+resetSettingsBtn?.addEventListener('click', () => {
   applyMode('balanced', true);
   saveCurrentSettings();
 });
@@ -223,10 +261,370 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
+function injectEnhancementStyles() {
+  if (document.getElementById('ui-enhancements')) return;
+
+  const style = document.createElement('style');
+  style.id = 'ui-enhancements';
+  style.textContent = `
+    body { overflow-x: hidden; }
+    body::after {
+      content: "";
+      position: fixed;
+      inset: -20%;
+      pointer-events: none;
+      background:
+        radial-gradient(circle at 18% 20%, rgba(0, 183, 195, 0.14), transparent 0 16%),
+        radial-gradient(circle at 82% 18%, rgba(47, 128, 255, 0.12), transparent 0 14%),
+        radial-gradient(circle at 70% 82%, rgba(124, 58, 237, 0.08), transparent 0 16%);
+      filter: blur(24px);
+      opacity: .8;
+      animation: bgFloat 24s linear infinite;
+      z-index: 0;
+    }
+    .layout {
+      grid-template-columns: 1fr !important;
+      align-items: start !important;
+    }
+    .panel-right {
+      margin-top: 20px;
+    }
+    .panel-right.is-dashboard {
+      padding-top: 10px;
+    }
+    .dashboard-board {
+      display: grid;
+      gap: 14px;
+      margin-bottom: 16px;
+    }
+    .dashboard-hero {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 12px;
+      border-radius: 22px;
+      padding: 14px 16px;
+      border: 1px solid rgba(148, 163, 184, 0.22);
+      background: linear-gradient(135deg, rgba(0, 183, 195, 0.10), rgba(47, 128, 255, 0.07));
+    }
+    .dashboard-hero h3 {
+      margin: 4px 0 4px;
+      font-size: 18px;
+      line-height: 1.15;
+      letter-spacing: -.04em;
+      font-weight: 900;
+    }
+    .dashboard-hero p {
+      margin: 0;
+      color: var(--text-muted);
+      font-size: 13px;
+      line-height: 1.55;
+      font-weight: 600;
+      max-width: 660px;
+    }
+    .dashboard-badge {
+      padding: 8px 12px;
+      border-radius: 999px;
+      border: 1px solid rgba(0, 183, 195, 0.22);
+      background: rgba(255,255,255,.55);
+      color: var(--brand-2);
+      font-size: 12px;
+      font-weight: 900;
+      white-space: nowrap;
+      box-shadow: var(--shadow-sm);
+    }
+    body.theme-dark .dashboard-badge {
+      background: rgba(17, 26, 43, 0.72);
+    }
+    .dashboard-metrics {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+    }
+    .dash-card {
+      border-radius: 18px;
+      padding: 14px;
+      border: 1px solid var(--line);
+      background:
+        linear-gradient(180deg, rgba(255,255,255,0.86), rgba(255,255,255,0.70)),
+        var(--surface-solid);
+      box-shadow: var(--shadow-sm);
+      overflow: hidden;
+    }
+    body.theme-dark .dash-card {
+      background:
+        linear-gradient(180deg, rgba(17, 26, 43, 0.98), rgba(17, 26, 43, 0.90)),
+        var(--surface-solid);
+    }
+    .dash-card-label {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 11px;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      font-weight: 900;
+    }
+    .dash-card-value {
+      display: block;
+      font-size: 24px;
+      line-height: 1.1;
+      letter-spacing: -.04em;
+      font-weight: 900;
+      color: var(--text);
+    }
+    .dash-card-sub {
+      margin-top: 6px;
+      font-size: 12px;
+      line-height: 1.5;
+      color: var(--text-muted);
+      font-weight: 600;
+    }
+    .timeline-card {
+      border-radius: 22px;
+      padding: 14px 16px;
+      border: 1px solid var(--line);
+      background:
+        linear-gradient(180deg, rgba(255,255,255,0.86), rgba(255,255,255,0.70)),
+        var(--surface-solid);
+      box-shadow: var(--shadow-sm);
+    }
+    body.theme-dark .timeline-card {
+      background:
+        linear-gradient(180deg, rgba(17, 26, 43, 0.98), rgba(17, 26, 43, 0.90)),
+        var(--surface-solid);
+    }
+    .timeline-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 12px;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      font-weight: 900;
+      color: var(--text-muted);
+    }
+    .timeline {
+      display: grid;
+      gap: 10px;
+    }
+    .timeline-step {
+      display: grid;
+      grid-template-columns: 24px 1fr auto;
+      gap: 10px;
+      align-items: center;
+      border-radius: 16px;
+      padding: 10px 12px;
+      border: 1px solid transparent;
+      background: rgba(148, 163, 184, 0.06);
+    }
+    .timeline-step .dot {
+      width: 14px;
+      height: 14px;
+      border-radius: 999px;
+      background: rgba(148, 163, 184, 0.35);
+      box-shadow: 0 0 0 6px rgba(148, 163, 184, 0.08);
+    }
+    .timeline-step .label {
+      font-size: 13px;
+      font-weight: 800;
+      color: var(--text);
+      letter-spacing: -.01em;
+    }
+    .timeline-step .detail {
+      font-size: 12px;
+      color: var(--text-muted);
+      font-weight: 600;
+    }
+    .timeline-step.is-active {
+      border-color: rgba(0, 183, 195, 0.24);
+      background: linear-gradient(135deg, rgba(0,183,195,.10), rgba(47,128,255,.06));
+    }
+    .timeline-step.is-active .dot {
+      background: linear-gradient(135deg, var(--brand), var(--brand-2));
+      box-shadow: 0 0 0 6px rgba(0, 183, 195, 0.10);
+      animation: pulseDot 1.2s ease-in-out infinite;
+    }
+    .timeline-step.is-done .dot {
+      background: linear-gradient(135deg, #16a34a, #22c55e);
+      box-shadow: 0 0 0 6px rgba(34, 197, 94, 0.10);
+    }
+    .timeline-step.is-done .label {
+      color: var(--text-soft);
+    }
+    .timeline-step.is-error {
+      border-color: rgba(239, 68, 68, 0.22);
+      background: rgba(239, 68, 68, 0.07);
+    }
+    .timeline-step.is-error .dot {
+      background: linear-gradient(135deg, #ef4444, #f97316);
+      box-shadow: 0 0 0 6px rgba(239, 68, 68, 0.12);
+    }
+    .mode-badge-static {
+      cursor: default !important;
+      pointer-events: none !important;
+      user-select: none !important;
+    }
+    .mode-badge-static:hover {
+      transform: none !important;
+      box-shadow: var(--shadow-sm) !important;
+    }
+    body.is-dragging .dropzone {
+      transform: scale(1.01);
+      box-shadow: 0 18px 40px rgba(0, 183, 195, 0.16);
+    }
+    body.is-dragging .dropzone::before {
+      opacity: .7;
+    }
+    .mini-glow {
+      position: fixed;
+      width: 340px;
+      height: 340px;
+      border-radius: 999px;
+      pointer-events: none;
+      filter: blur(24px);
+      opacity: .5;
+      z-index: 0;
+      animation: drift 18s ease-in-out infinite;
+    }
+    .mini-glow.one { left: -110px; top: 12%; background: rgba(0,183,195,.16); }
+    .mini-glow.two { right: -120px; top: 26%; background: rgba(47,128,255,.12); animation-delay: -7s; }
+    .mini-glow.three { left: 24%; bottom: -130px; background: rgba(124,58,237,.10); animation-delay: -12s; }
+    .metric-up {
+      animation: metricPop 260ms ease;
+    }
+    .flash {
+      animation: flashBg 500ms ease;
+    }
+    @keyframes bgFloat {
+      0% { transform: translate3d(0,0,0) scale(1); }
+      50% { transform: translate3d(12px,-18px,0) scale(1.02); }
+      100% { transform: translate3d(0,0,0) scale(1); }
+    }
+    @keyframes drift {
+      0%,100% { transform: translateY(0) translateX(0); }
+      50% { transform: translateY(-18px) translateX(16px); }
+    }
+    @keyframes pulseDot {
+      0%,100% { transform: scale(1); }
+      50% { transform: scale(1.12); }
+    }
+    @keyframes metricPop {
+      0% { transform: translateY(2px) scale(.98); opacity: .6; }
+      100% { transform: translateY(0) scale(1); opacity: 1; }
+    }
+    @keyframes flashBg {
+      0% { box-shadow: 0 0 0 0 rgba(0,183,195,.0); }
+      40% { box-shadow: 0 0 0 8px rgba(0,183,195,.10); }
+      100% { box-shadow: 0 0 0 0 rgba(0,183,195,.0); }
+    }
+    @media (max-width: 1100px) {
+      .dashboard-metrics { grid-template-columns: repeat(2, minmax(0,1fr)); }
+    }
+    @media (max-width: 720px) {
+      .dashboard-metrics { grid-template-columns: 1fr; }
+    }
+  `;
+  document.head.appendChild(style);
+}
+
+function createFloatingBackground() {
+  ['one', 'two', 'three'].forEach((cls) => {
+    if (document.querySelector(`.mini-glow.${cls}`)) return;
+    const el = document.createElement('div');
+    el.className = `mini-glow ${cls}`;
+    document.body.appendChild(el);
+  });
+}
+
+function setupDashboardShell() {
+  if (dashboardReady) return;
+
+  const layout = document.querySelector('.layout');
+  const leftPanel = document.querySelector('.panel-left') || document.querySelector('.panel:first-child');
+  const rightPanel = document.querySelector('.panel-right') || document.querySelector('.panel:last-child');
+
+  if (!layout || !leftPanel || !rightPanel) return;
+
+  layout.classList.add('dashboard-shell');
+
+  if (leftPanel.parentElement === layout && rightPanel.parentElement === layout) {
+    layout.appendChild(leftPanel);
+    layout.appendChild(rightPanel);
+  }
+
+  rightPanel.classList.add('is-dashboard');
+
+  const board = document.createElement('section');
+  board.className = 'dashboard-board';
+  board.innerHTML = `
+    <div class="dashboard-hero">
+      <div>
+        <div class="eyebrow">Live dashboard</div>
+        <h3>Processing telemetry</h3>
+        <p>Live counters, ETA, download speed, and a timeline update as the job runs.</p>
+      </div>
+      <div class="dashboard-badge" data-dashboard-mode>Balanced</div>
+    </div>
+
+    <div class="dashboard-metrics">
+      <div class="dash-card">
+        <span class="dash-card-label">Images / sec</span>
+        <span class="dash-card-value" data-dash="speed">0.0</span>
+        <div class="dash-card-sub" data-dash-sub="speed">Waiting for job start</div>
+      </div>
+      <div class="dash-card">
+        <span class="dash-card-label">Average latency</span>
+        <span class="dash-card-value" data-dash="avg">0 ms</span>
+        <div class="dash-card-sub" data-dash-sub="avg">Per processed image</div>
+      </div>
+      <div class="dash-card">
+        <span class="dash-card-label">Remaining</span>
+        <span class="dash-card-value" data-dash="remaining">—</span>
+        <div class="dash-card-sub" data-dash-sub="remaining">Estimated finish time available below</div>
+      </div>
+      <div class="dash-card">
+        <span class="dash-card-label">Progress</span>
+        <span class="dash-card-value" data-dash="progress">0%</span>
+        <div class="dash-card-sub" data-dash-sub="progress">Pipeline progress</div>
+      </div>
+    </div>
+
+    <div class="timeline-card">
+      <div class="timeline-title">
+        <span>Processing timeline</span>
+        <span class="overview-badge">Realtime</span>
+      </div>
+      <div class="timeline" data-timeline></div>
+    </div>
+  `;
+
+  rightPanel.insertBefore(board, rightPanel.firstChild);
+
+  dashboardRefs = {
+    root: board,
+    mode: board.querySelector('[data-dashboard-mode]'),
+    speed: board.querySelector('[data-dash="speed"]'),
+    avg: board.querySelector('[data-dash="avg"]'),
+    remaining: board.querySelector('[data-dash="remaining"]'),
+    progress: board.querySelector('[data-dash="progress"]'),
+    speedSub: board.querySelector('[data-dash-sub="speed"]'),
+    avgSub: board.querySelector('[data-dash-sub="avg"]'),
+    remainingSub: board.querySelector('[data-dash-sub="remaining"]'),
+    progressSub: board.querySelector('[data-dash-sub="progress"]'),
+    timeline: board.querySelector('[data-timeline]'),
+  };
+
+  dashboardReady = true;
+  renderTimeline('idle', 'Ready');
+}
+
 function openSettings() {
   settingsModal.hidden = false;
   document.body.style.overflow = 'hidden';
-  setTimeout(() => refererInput.focus(), 30);
+  setTimeout(() => refererInput?.focus(), 30);
 }
 
 function closeSettings() {
@@ -243,7 +641,6 @@ function closeSuccess() {
   successScreen.hidden = true;
   document.body.style.overflow = '';
 }
-
 function toggleTheme() {
   const isDark = !document.body.classList.contains('theme-dark');
   setTheme(isDark);
@@ -252,7 +649,9 @@ function toggleTheme() {
 
 function setTheme(isDark) {
   document.body.classList.toggle('theme-dark', isDark);
-  themeBtn.textContent = isDark ? '☀ Light mode' : '🌙 Dark mode';
+  if (themeBtn) {
+    themeBtn.textContent = isDark ? '☀ Light mode' : '🌙 Dark mode';
+  }
 }
 
 function loadTheme() {
@@ -368,6 +767,12 @@ function updateModeUI() {
       : (MODE_PRESETS[currentMode]?.label || 'Balanced');
   }
 
+  if (dashboardRefs.mode) {
+    dashboardRefs.mode.textContent = currentMode === 'custom'
+      ? 'Custom'
+      : (MODE_PRESETS[currentMode]?.label || 'Balanced');
+  }
+
   if (customModeHintEl) {
     customModeHintEl.textContent =
       currentMode === 'custom'
@@ -390,6 +795,7 @@ async function loadFile(file) {
   runBtn.disabled = true;
   detectedColumns = null;
   columnHint.innerHTML = '<span class="mini-chip">Detecting columns…</span>';
+  updateTimelineFromPhase('read', 'Parsing workbook...');
 
   saveCurrentSettings();
 
@@ -411,6 +817,7 @@ async function loadFile(file) {
     currentItemEl.textContent = '—';
     renderPreview(parsedRows);
     setProgress(30, 'Preview ready');
+    updateTimelineFromPhase('detect', 'Columns mapped');
 
     if (!dataRows.length) {
       setStatus('The file has a header row but no data rows.', 'error');
@@ -418,10 +825,7 @@ async function loadFile(file) {
       return;
     }
 
-    setStatus(
-      'File loaded. Първият ред се използва като заглавие. Качи файла, а ние ще се погрижим за останалото.',
-      'success'
-    );
+    setStatus('File loaded. The first row is used as the header. Upload your file and we will handle the rest.', 'success');
     runBtn.disabled = false;
   } catch (err) {
     parsedRows = [];
@@ -489,6 +893,9 @@ async function startUpload() {
   startedAt = Date.now();
   lastFailedRows = [];
   lastErrorSummary = null;
+  lastStatusSnapshot = null;
+  lastSample = null;
+  smoothedSpeed = 0;
   downloadBtn.style.display = 'none';
   downloadBtn.href = '#';
   successDownloadBtn.href = '#';
@@ -501,6 +908,7 @@ async function startUpload() {
   successRetryBtn.style.display = 'none';
   runBtn.disabled = true;
 
+  updateTimelineFromPhase('upload', 'Uploading workbook...');
   saveCurrentSettings();
 
   const payload = {
@@ -526,6 +934,7 @@ async function startUpload() {
     if (!res.ok || !data.ok) throw new Error(data.message || 'Upload failed');
 
     jobId = data.jobId;
+    updateTimelineFromPhase('download', 'Job queued');
     pollStatus();
   } catch (err) {
     setStatus('Upload error: ' + err.message, 'error');
@@ -566,6 +975,8 @@ function pollStatus() {
           successRetryBtn.style.display = 'none';
         }
 
+        updateTimelineFromPhase('done', 'ZIP ready');
+
         openSuccess();
 
         if (!autoDownloaded) {
@@ -581,6 +992,7 @@ function pollStatus() {
       if (data.status === 'error') {
         setStatus(data.error || 'Processing failed.', 'error');
         setProgress(0, '0%');
+        updateTimelineFromPhase('error', data.error || 'Processing failed');
         runBtn.disabled = false;
         clearTimeout(pollTimer);
         return;
@@ -590,16 +1002,19 @@ function pollStatus() {
     })
     .catch((err) => {
       setStatus('Status error: ' + err.message, 'error');
+      updateTimelineFromPhase('error', err.message || 'Status error');
       runBtn.disabled = false;
       clearTimeout(pollTimer);
     });
 }
 
 function renderStatus(data) {
+  lastStatusSnapshot = data;
+
   fileNameEl.textContent = data.fileName || '—';
-  rowsCountEl.textContent = String(data.total ?? '—');
-  okCountEl.textContent = String(data.ready ?? '—');
-  errCountEl.textContent = String(data.failed ?? '—');
+  animateCount(rowsCountEl, Number(data.total ?? 0));
+  animateCount(okCountEl, Number(data.ready ?? 0));
+  animateCount(errCountEl, Number(data.failed ?? 0));
   currentItemEl.textContent = data.current || '—';
 
   const progress = Number(data.progress || 0);
@@ -607,9 +1022,24 @@ function renderStatus(data) {
   const total = Number(data.total || 0);
   setProgress(progress, `Downloading ${done} / ${total}`);
 
+  const metrics = computeMetrics(data);
+  updateDashboardMetrics({
+    fileName: data.fileName || '—',
+    rows: total,
+    ready: Number(data.ready || 0),
+    failed: Number(data.failed || 0),
+    speed: metrics.speed,
+    avgMs: metrics.avgMs,
+    eta: metrics.etaText,
+    progress,
+    stage: data.status,
+    current: data.current || '—',
+    currentFile: data.current || '—',
+  });
+
   if (startedAt && progress > 0 && progress < 100) {
     const elapsed = (Date.now() - startedAt) / 1000;
-    const remaining = (elapsed * (100 - progress)) / progress;
+    const remaining = metrics.remainingSec ?? ((elapsed * (100 - progress)) / progress);
     const remainingMs = Math.max(0, Math.round(remaining * 1000));
     etaText.textContent = 'ETA: ' + formatDuration(remaining);
     estimatedFinishEl.textContent = formatClockTime(Date.now() + remainingMs);
@@ -646,9 +1076,13 @@ function renderStatus(data) {
     retryFailedBtn.disabled = true;
     successRetryBtn.style.display = 'none';
   }
+
+  updateTimelineFromPhase(data.status === 'done' ? 'done' : 'download', data.current || data.message || 'Processing');
 }
 
 function renderErrorSummary(summary) {
+  if (!errorSummaryGrid) return;
+
   if (!summary || summary.total === 0) {
     errorSummaryGrid.innerHTML = '<div class="summary-empty">No error summary yet.</div>';
     errorSummaryHelp.textContent = 'This will summarize what failed in the latest run.';
@@ -667,12 +1101,16 @@ function renderErrorSummary(summary) {
     .map(([label, value]) => `
       <div class="summary-card">
         <span class="summary-kind">${escapeHtml(label)}</span>
-        <span class="summary-value">${Number(value || 0)}</span>
+        <span class="summary-value" data-count="${Number(value || 0)}">0</span>
       </div>
     `)
     .join('');
 
   errorSummaryHelp.textContent = `Detected ${summary.total} failed items in the latest run.`;
+
+  errorSummaryGrid.querySelectorAll('.summary-value').forEach((el) => {
+    animateCount(el, Number(el.dataset.count || 0));
+  });
 }
 
 function retryFailed() {
@@ -938,17 +1376,161 @@ function indexToLetter(index) {
   return result || 'A';
 }
 
-function setStatus(text, kind) {
-  statusEl.textContent = text;
-  statusEl.classList.remove('ok', 'err');
-  if (kind === 'success') statusEl.classList.add('ok');
-  if (kind === 'error') statusEl.classList.add('err');
+function updateTimelineFromPhase(phase, currentText) {
+  renderTimeline(phase, currentText);
 }
 
-function setProgress(value, label) {
-  const v = Math.max(0, Math.min(100, Math.round(value)));
-  barEl.style.width = v + '%';
-  progressText.textContent = label || (v + '%');
+function renderTimeline(phase, currentText) {
+  if (!dashboardRefs.timeline) return;
+
+  const phaseOrder = {
+    idle: 0,
+    upload: 1,
+    read: 2,
+    detect: 3,
+    download: 4,
+    normalize: 5,
+    zip: 6,
+    done: 7,
+    error: -1,
+  };
+
+  const active = phaseOrder[phase] ?? 0;
+
+  dashboardRefs.timeline.innerHTML = TIMELINE_STEPS.map((step, idx) => {
+    const done = active > idx;
+    const isActive = active === idx;
+    const isError = phase === 'error' && idx >= 3 && idx <= 6;
+    return `
+      <div class="timeline-step ${done ? 'is-done' : ''} ${isActive ? 'is-active' : ''} ${isError ? 'is-error' : ''}">
+        <div class="dot"></div>
+        <div>
+          <div class="label">${escapeHtml(step.label)}</div>
+          <div class="detail">${escapeHtml(step.detail)}</div>
+        </div>
+        <div class="detail">${isActive && currentText ? escapeHtml(currentText) : done ? 'Complete' : ''}</div>
+      </div>
+    `;
+  }).join('');
+}
+
+function computeMetrics(data) {
+  const now = Date.now();
+  const total = Number(data?.total || 0);
+  const done = Number(data?.done || 0);
+  const progress = Number(data?.progress || 0);
+  const elapsedMs = startedAt ? Math.max(1, now - startedAt) : 1;
+
+  const sample = { t: now, done };
+  let instantSpeed = 0;
+
+  if (lastSample) {
+    const dt = Math.max(1, (sample.t - lastSample.t)) / 1000;
+    const dDone = sample.done - lastSample.done;
+    if (dDone > 0 && dt > 0) {
+      instantSpeed = dDone / dt;
+    }
+  }
+
+  lastSample = sample;
+
+  if (instantSpeed > 0) {
+    smoothedSpeed = smoothedSpeed ? (smoothedSpeed * 0.68 + instantSpeed * 0.32) : instantSpeed;
+  }
+
+  const speed = Number.isFinite(smoothedSpeed) ? smoothedSpeed : 0;
+  const avgMs = done > 0 ? elapsedMs / done : 0;
+  const remainingSec = speed > 0 ? Math.max(0, (total - done) / speed) : 0;
+  const etaTextValue = progress >= 100 ? 'Done' : remainingSec > 0 ? formatDuration(remainingSec) : '—';
+
+  return {
+    speed,
+    avgMs,
+    remainingSec,
+    etaText: etaTextValue,
+  };
+}
+
+function updateDashboardMetrics({ fileName, rows, ready, failed, speed, avgMs, eta, progress, stage, current }) {
+  if (!dashboardReady) return;
+
+  setDashValue(dashboardRefs.speed, `${formatNumber(speed, 1)} img/s`);
+  setDashSub(dashboardRefs.speedSub, current && stage !== 'done' ? `Now: ${current}` : 'Live throughput');
+
+  setDashValue(dashboardRefs.avg, avgMs ? `${Math.round(avgMs)} ms/img` : '—');
+  setDashSub(dashboardRefs.avgSub, 'Average per processed row');
+
+  setDashValue(dashboardRefs.remaining, eta || '—');
+  setDashSub(dashboardRefs.remainingSub, stage === 'done' ? 'Completed' : 'Estimated finish');
+
+  setDashValue(dashboardRefs.progress, `${Math.round(progress || 0)}%`);
+  setDashSub(dashboardRefs.progressSub, `${ready || 0} ready · ${failed || 0} errors`);
+
+  if (dashboardRefs.mode && currentMode) {
+    dashboardRefs.mode.textContent = currentMode === 'custom'
+      ? 'Custom'
+      : (MODE_PRESETS[currentMode]?.label || 'Balanced');
+  }
+
+  flashMetric(dashboardRefs.speed);
+  flashMetric(dashboardRefs.avg);
+  flashMetric(dashboardRefs.remaining);
+  flashMetric(dashboardRefs.progress);
+}
+
+function setDashValue(el, value) {
+  if (!el) return;
+  const next = String(value);
+  if (el.textContent !== next) {
+    el.textContent = next;
+    el.classList.remove('metric-up');
+    void el.offsetWidth;
+    el.classList.add('metric-up');
+  }
+}
+
+function setDashSub(el, value) {
+  if (!el) return;
+  el.textContent = value;
+}
+
+function flashMetric(el) {
+  if (!el) return;
+  const card = el.closest('.dash-card');
+  if (!card) return;
+  card.classList.remove('flash');
+  void card.offsetWidth;
+  card.classList.add('flash');
+}
+
+function animateCount(el, target) {
+  if (!el) return;
+  const finalValue = Number.isFinite(target) ? target : 0;
+  const start = Number(String(el.textContent || '0').replace(/[^\d.-]/g, '')) || 0;
+
+  if (Math.abs(finalValue - start) < 1) {
+    el.textContent = String(Math.round(finalValue));
+    return;
+  }
+
+  const duration = 450;
+  const startTime = performance.now();
+
+  function frame(now) {
+    const p = Math.min(1, (now - startTime) / duration);
+    const eased = 1 - Math.pow(1 - p, 3);
+    const value = start + (finalValue - start) * eased;
+    el.textContent = String(Math.round(value));
+    if (p < 1) requestAnimationFrame(frame);
+  }
+
+  requestAnimationFrame(frame);
+}
+
+function formatClockTime(ts) {
+  if (!Number.isFinite(ts)) return '—';
+  const d = new Date(ts);
+  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
 function formatDuration(sec) {
@@ -959,10 +1541,24 @@ function formatDuration(sec) {
   return `${r}s`;
 }
 
-function formatClockTime(ts) {
-  if (!Number.isFinite(ts)) return '—';
-  const d = new Date(ts);
-  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+function formatNumber(value, digits = 0) {
+  const n = Number(value || 0);
+  if (!Number.isFinite(n)) return '0';
+  return n.toFixed(digits);
+}
+
+function setStatus(text, kind) {
+  statusEl.textContent = text;
+  statusEl.classList.remove('ok', 'err');
+  if (kind === 'success') statusEl.classList.add('ok');
+  if (kind === 'error') statusEl.classList.add('err');
+}
+
+function setProgress(value, label) {
+  const v = Math.max(0, Math.min(100, Math.round(value)));
+  barEl.style.width = v + '%';
+  barEl.parentElement?.style.setProperty('--progress', `${v}%`);
+  progressText.textContent = label || (v + '%');
 }
 
 function escapeHtml(str) {
@@ -972,4 +1568,19 @@ function escapeHtml(str) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
+}
+
+function renderPreviewTable(rows) {
+  const visible = rows.slice(0, 6);
+  if (!visible.length) return '<div class="small">No preview rows available.</div>';
+
+  let html = '<table class="preview-table"><tbody>';
+  visible.forEach((r, idx) => {
+    const a = escapeHtml(r[0] || '');
+    const b = escapeHtml(r[1] || '');
+    if (idx === 0) html += '<tr><th>' + a + '</th><th>' + b + '</th></tr>';
+    else html += '<tr><td>' + a + '</td><td class="preview-url">' + b + '</td></tr>';
+  });
+  html += '</tbody></table>';
+  return html;
 }
