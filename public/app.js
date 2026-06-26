@@ -537,7 +537,7 @@ async function startUpload() {
 function pollStatus() {
   if (!jobId) return;
 
-  fetch('/api/status/' + jobId)
+  fetch('/api/status/' + jobId, { cache: 'no-store' })
     .then((r) => r.json())
     .then((data) => {
       if (!data.ok) throw new Error(data.message || 'Status error');
