@@ -1,4 +1,6 @@
+const crypto = require('crypto');
 const path = require('path');
+const os = require('os');
 const fs = require('fs/promises');
 
 const express = require('express');
@@ -6,7 +8,6 @@ const compression = require('compression');
 const helmet = require('helmet');
 const morgan = require('morgan');
 
-const { createJobStore } = require('./src/state');
 const { downloadImage } = require('./src/downloader');
 const { buildZip } = require('./src/zipBuilder');
 const {
@@ -18,16 +19,20 @@ const {
 } = require('./src/utils');
 
 const app = express();
-const store = createJobStore();
 const PORT = Number(process.env.PORT || 3000);
 
 const DEFAULT_SETTINGS = {
   timeoutMs: 45000,
   retries: 2,
   concurrency: 4,
-  browserFallback: true,
+  browserFallback: false,
+  maxSide: 3000,
+  quality: 92,
 };
 
+const jobs = new Map();
+
+app.disable('x-powered-by');
 app.use(helmet({ contentSecurityPolicy: false }));
 app.use(compression());
 app.use(morgan('dev'));
@@ -55,6 +60,8 @@ app.post('/api/start', async (req, res) => {
       retries: clampInt(body?.settings?.retries, 0, 5, DEFAULT_SETTINGS.retries),
       concurrency: clampInt(body?.settings?.concurrency, 1, 10, DEFAULT_SETTINGS.concurrency),
       browserFallback: body?.settings?.browserFallback === false ? false : true,
+      maxSide: clampInt(body?.settings?.maxSide, 256, 8000, DEFAULT_SETTINGS.maxSide),
+      quality: clampInt(body?.settings?.quality, 50, 100, DEFAULT_SETTINGS.quality),
     };
 
     if (!rows.length) {
@@ -64,7 +71,7 @@ app.post('/api/start', async (req, res) => {
       });
     }
 
-    const job = await store.create({
+    const job = await createJob({
       fileName,
       rows,
       referer,
@@ -75,25 +82,39 @@ app.post('/api/start', async (req, res) => {
 
     setImmediate(() => {
       processJob(job.id).catch((err) => {
-        store.update(job.id, {
+        const error = String(err?.message || err || 'processing failed');
+        updateJob(job.id, {
           status: 'error',
-          error: err?.message || String(err),
           message: 'Processing failed.',
-          updatedAt: Date.now(),
+          error,
+          current: 'Error',
         });
-        store.log(job.id, `ERROR: ${err?.stack || err?.message || String(err)}`);
+        appendLog(job.id, `ERROR: ${error}`);
       });
     });
   } catch (err) {
     res.status(500).json({
       ok: false,
-      message: err?.message || String(err),
+      message: String(err?.message || err || 'Start failed'),
     });
   }
 });
 
 app.get('/api/status/:jobId', (req, res) => {
-  const job = store.snapshot(req.params.jobId);
+  const snapshot = snapshotJob(req.params.jobId);
+  if (!snapshot) {
+    return res.status(404).json({
+      ok: false,
+      message: 'Job not found.',
+    });
+  }
+
+  res.json({ ok: true, ...snapshot });
+});
+
+app.get('/api/download/:jobId', async (req, res) => {
+  const job = jobs.get(req.params.jobId);
+
   if (!job) {
     return res.status(404).json({
       ok: false,
@@ -101,47 +122,162 @@ app.get('/api/status/:jobId', (req, res) => {
     });
   }
 
-  res.json({ ok: true, ...job });
-});
-
-app.get('/api/download/:jobId', async (req, res) => {
-  const job = store.get(req.params.jobId);
-  if (!job || !job.zipPath) {
-    return res.status(404).send('Not ready');
+  if (job.status !== 'done' || !job.zipPath) {
+    return res.status(409).json({
+      ok: false,
+      message: 'ZIP is not ready yet.',
+    });
   }
 
   try {
     await fs.access(job.zipPath);
-    res.download(job.zipPath, job.downloadName || path.basename(job.zipPath));
+    return res.download(job.zipPath, job.downloadName || path.basename(job.zipPath));
   } catch {
-    res.status(404).send('File not available');
+    return res.status(404).json({
+      ok: false,
+      message: 'File not available.',
+    });
   }
 });
 
-app.use((_req, res) => {
-  res.status(404).send('Not found');
+app.use((req, res, next) => {
+  if (req.path.startsWith('/api/')) {
+    return res.status(404).json({
+      ok: false,
+      message: 'Not found.',
+    });
+  }
+  next();
+});
+
+app.use((err, _req, res, _next) => {
+  if (err instanceof SyntaxError && 'body' in err) {
+    return res.status(400).json({
+      ok: false,
+      message: 'Invalid JSON body.',
+    });
+  }
+
+  console.error(err);
+  res.status(500).json({
+    ok: false,
+    message: String(err?.message || err || 'Internal server error'),
+  });
 });
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Photo downloader running on port ${PORT}`);
 });
 
+async function createJob({ fileName, rows, referer, settings }) {
+  const id = randomId();
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'photo-downloader-'));
+
+  const job = {
+    id,
+    fileName: String(fileName || 'catalog.xlsx'),
+    rows: Array.isArray(rows) ? rows : [],
+    referer: String(referer || ''),
+    settings: settings || {},
+    tempDir,
+
+    status: 'queued',
+    progress: 0,
+    total: 0,
+    done: 0,
+    ready: 0,
+    failed: 0,
+    current: '',
+    message: 'Waiting to start.',
+    error: null,
+
+    startedAt: Date.now(),
+    updatedAt: Date.now(),
+
+    zipPath: null,
+    downloadName: null,
+    zipSizeBytes: 0,
+    zipSizeText: '—',
+
+    preview: [],
+    logs: [],
+    failedRows: [],
+    errorSummary: makeEmptyErrorSummary(),
+    reportText: '',
+    failedCsv: '',
+    etaMs: 0,
+  };
+
+  jobs.set(id, job);
+  return job;
+}
+
+function snapshotJob(id) {
+  const job = jobs.get(id);
+  if (!job) return null;
+
+  return {
+    jobId: job.id,
+    fileName: job.fileName,
+    status: job.status,
+    progress: job.progress,
+    total: job.total,
+    done: job.done,
+    ready: job.ready,
+    failed: job.failed,
+    current: job.current,
+    message: job.message,
+    error: job.error,
+    startedAt: job.startedAt,
+    updatedAt: job.updatedAt,
+    etaMs: job.etaMs,
+
+    preview: job.preview,
+    logs: job.logs.slice(-120),
+    failedRows: job.failedRows,
+    errorSummary: job.errorSummary,
+
+    downloadReady: Boolean(job.zipPath && job.status === 'done'),
+    downloadUrl: job.zipPath ? `/api/download/${job.id}` : null,
+    downloadName: job.downloadName,
+    zipSizeBytes: job.zipSizeBytes,
+    zipSizeText: job.zipSizeText,
+    reportText: job.reportText,
+    failedCsv: job.failedCsv,
+  };
+}
+
+function updateJob(id, patch = {}) {
+  const job = jobs.get(id);
+  if (!job) return null;
+
+  Object.assign(job, patch, {
+    updatedAt: Date.now(),
+  });
+
+  return job;
+}
+
+function appendLog(id, message) {
+  const job = jobs.get(id);
+  if (!job) return null;
+
+  job.logs.push(String(message));
+  if (job.logs.length > 200) {
+    job.logs.splice(0, job.logs.length - 200);
+  }
+
+  job.updatedAt = Date.now();
+  return job;
+}
+
 async function processJob(jobId) {
-  const job = store.get(jobId);
+  const job = jobs.get(jobId);
   if (!job) return;
 
   const rows = Array.isArray(job.rows) ? job.rows : [];
-  if (rows.length < 1) {
-    store.update(jobId, {
-      status: 'error',
-      message: 'No rows found.',
-      error: 'No rows found.',
-      updatedAt: Date.now(),
-    });
-    return;
-  }
-
   const preview = rows.slice(0, 6);
+
   const dataRows = rows.slice(1).filter((row) => {
     const a = String(row?.[0] || '').trim();
     const b = String(row?.[1] || '').trim();
@@ -149,13 +285,14 @@ async function processJob(jobId) {
   });
 
   if (!dataRows.length) {
-    store.update(jobId, {
+    updateJob(jobId, {
       status: 'error',
       message: 'The file contains only a header row.',
       error: 'The file contains only a header row.',
       preview,
       total: 0,
-      updatedAt: Date.now(),
+      current: 'No data',
+      etaMs: 0,
     });
     return;
   }
@@ -171,7 +308,7 @@ async function processJob(jobId) {
   let ready = 0;
   let failed = 0;
 
-  store.update(jobId, {
+  updateJob(jobId, {
     status: 'processing',
     preview,
     total: dataRows.length,
@@ -182,10 +319,9 @@ async function processJob(jobId) {
     message: 'Processing started.',
     current: 'Preparing tasks...',
     startedAt,
-    updatedAt: Date.now(),
+    etaMs: 0,
     errorSummary: makeEmptyErrorSummary(),
     failedRows: [],
-    etaMs: 0,
   });
 
   reportLines.push('Photo downloader report');
@@ -194,7 +330,7 @@ async function processJob(jobId) {
   reportLines.push(`Rows (excluding header): ${dataRows.length}`);
   reportLines.push(`Referer: ${job.referer || '(none)'}`);
   reportLines.push(
-    `Settings: timeout=${job.settings.timeoutMs}ms, retries=${job.settings.retries}, concurrency=${job.settings.concurrency}, browserFallback=${job.settings.browserFallback}`
+    `Settings: timeout=${job.settings.timeoutMs}ms, retries=${job.settings.retries}, concurrency=${job.settings.concurrency}, maxSide=${job.settings.maxSide}, quality=${job.settings.quality}`
   );
   reportLines.push('');
   reportLines.push('Header row skipped automatically.');
@@ -214,6 +350,7 @@ async function processJob(jobId) {
       const current = cursor;
       cursor += 1;
       if (current >= tasks.length) return;
+
       const task = tasks[current];
       await processRowTask(task);
     }
@@ -228,7 +365,8 @@ async function processJob(jobId) {
   reportLines.push(`Total rows: ${dataRows.length}`);
   reportLines.push(`Elapsed: ${formatDuration(Date.now() - startedAt)}`);
 
-  const zipName = `${sanitizeFileName(job.fileName.replace(/\.[^.]+$/, '')) || 'images'}.zip`;
+  const zipBase = sanitizeFileName(job.fileName.replace(/\.[^.]+$/, '')) || 'images';
+  const zipName = `${zipBase}.zip`;
   const zipPath = path.join(tempDir, zipName);
   const reportText = reportLines.join('\n');
   const failedCsv = createFailedRowsCsv(failedRows);
@@ -243,7 +381,7 @@ async function processJob(jobId) {
 
   const zipStats = await fs.stat(zipPath);
 
-  store.update(jobId, {
+  updateJob(jobId, {
     status: 'done',
     progress: 100,
     done: dataRows.length,
@@ -260,10 +398,9 @@ async function processJob(jobId) {
     failedRows,
     errorSummary,
     etaMs: 0,
-    updatedAt: Date.now(),
   });
 
-  store.log(jobId, `ZIP ready: ${zipName} (${formatBytes(zipStats.size)})`);
+  appendLog(jobId, `ZIP ready: ${zipName} (${formatBytes(zipStats.size)})`);
 
   async function processRowTask(task) {
     const row = task.row || [];
@@ -277,12 +414,11 @@ async function processJob(jobId) {
       return;
     }
 
-    store.update(jobId, {
+    updateJob(jobId, {
       current: itemName || imageUrl || `Row ${rowNumber}`,
       message: `Downloading row ${rowNumber}...`,
-      updatedAt: Date.now(),
     });
-    store.log(jobId, `Downloading row ${rowNumber}: ${itemName || '(empty)'}`);
+    appendLog(jobId, `Downloading row ${rowNumber}: ${itemName || '(empty)'}`);
 
     if (!itemName || !imageUrl) {
       const error = 'missing item name or URL';
@@ -290,7 +426,7 @@ async function processJob(jobId) {
       const record = makeFailedRow(rowNumber, itemName, imageUrl, error, '');
       failedRows.push(record);
       reportLines.push(`FAIL | Row ${rowNumber}: ${itemName || '(empty)'} -> ${error}`);
-      store.log(jobId, `FAIL: ${itemName || '(empty)'} -> ${error}`);
+      appendLog(jobId, `FAIL: ${itemName || '(empty)'} -> ${error}`);
 
       done += 1;
       updateProgress(`Failed row ${rowNumber}`);
@@ -302,17 +438,15 @@ async function processJob(jobId) {
         referer: job.referer,
         timeoutMs: job.settings.timeoutMs,
         retries: job.settings.retries,
-        browserFallback: job.settings.browserFallback,
+        maxSide: job.settings.maxSide,
+        quality: job.settings.quality,
       });
 
-      const ext = detectExtension(result.buffer, result.contentType, result.finalUrl || imageUrl);
-      if (!ext) {
-        throw new Error(`unsupported content type (${result.contentType || 'unknown'})`);
-      }
-
+      const ext = detectExtension(result.buffer, result.contentType, result.finalUrl || imageUrl) || 'jpg';
       const safeBase = sanitizeFileName(itemName) || `item_${rowNumber}`;
       const filename = uniqueName(safeBase, ext, usedNames);
       const filePath = path.join(tempDir, filename);
+
       await fs.writeFile(filePath, result.buffer);
 
       downloaded.push({
@@ -327,14 +461,14 @@ async function processJob(jobId) {
 
       ready += 1;
       reportLines.push(`OK   | ${rowNumber} | ${itemName} | ${filename} | ${result.method}`);
-      store.log(jobId, `OK: ${itemName} -> ${filename} (${result.method})`);
+      appendLog(jobId, `OK: ${itemName} -> ${filename} (${result.method})`);
     } catch (err) {
       failed += 1;
-      const error = err?.message || String(err);
+      const error = String(err?.message || err || 'download failed');
       const record = makeFailedRow(rowNumber, itemName, imageUrl, error, '');
       failedRows.push(record);
       reportLines.push(`FAIL | Row ${rowNumber}: ${itemName} -> ${error}`);
-      store.log(jobId, `FAIL: ${itemName} -> ${error}`);
+      appendLog(jobId, `FAIL: ${itemName} -> ${error}`);
     }
 
     done += 1;
@@ -346,14 +480,13 @@ async function processJob(jobId) {
     const elapsed = Date.now() - startedAt;
     const etaMs = progress > 0 && progress < 100 ? Math.round((elapsed * (100 - progress)) / progress) : 0;
 
-    store.update(jobId, {
+    updateJob(jobId, {
       done,
       ready,
       failed,
       progress,
       current: currentLabel,
       etaMs,
-      updatedAt: Date.now(),
     });
   }
 }
@@ -441,4 +574,12 @@ function clampInt(value, min, max, fallback) {
   const n = Number.parseInt(value, 10);
   if (!Number.isFinite(n)) return fallback;
   return Math.min(max, Math.max(min, n));
+}
+
+function randomId() {
+  try {
+    return crypto.randomUUID();
+  } catch {
+    return `${Date.now()}_${Math.random().toString(16).slice(2)}`;
+  }
 }
