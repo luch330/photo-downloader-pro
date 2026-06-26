@@ -6,11 +6,53 @@ const DEFAULT_RETRIES = 2;
 const DEFAULT_MAX_SIDE = 3000;
 const DEFAULT_QUALITY = 92;
 
-const UA =
-  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
-const ACCEPT =
+const ACCEPT_IMAGE =
   'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8';
-const LANG = 'en-US,en;q=0.9,bg;q=0.8';
+const ACCEPT_DOCUMENT =
+  'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8';
+
+const LANGUAGE_PROFILES = [
+  'bg-BG,bg;q=0.9,en-US;q=0.8,en;q=0.7',
+  'en-US,en;q=0.9,bg;q=0.8',
+  'bg;q=0.9,en;q=0.8',
+];
+
+const UA_PROFILES = [
+  {
+    id: 'chrome',
+    userAgent:
+      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+    extraHeaders: {
+      'sec-ch-ua':
+        '"Chromium";v="124", "Google Chrome";v="124", "Not A(Brand";v="24"',
+      'sec-ch-ua-mobile': '?0',
+      'sec-ch-ua-platform': '"macOS"',
+    },
+  },
+  {
+    id: 'edge',
+    userAgent:
+      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 Edg/124.0.0.0',
+    extraHeaders: {
+      'sec-ch-ua':
+        '"Chromium";v="124", "Microsoft Edge";v="124", "Not A(Brand";v="24"',
+      'sec-ch-ua-mobile': '?0',
+      'sec-ch-ua-platform': '"macOS"',
+    },
+  },
+  {
+    id: 'safari',
+    userAgent:
+      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15',
+    extraHeaders: {},
+  },
+  {
+    id: 'firefox',
+    userAgent:
+      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:127.0) Gecko/20100101 Firefox/127.0',
+    extraHeaders: {},
+  },
+];
 
 async function downloadImage(url, options = {}) {
   const inputUrl = String(url || '').trim();
@@ -41,87 +83,82 @@ async function downloadImage(url, options = {}) {
     };
   }
 
-  const direct = await fetchWithRetries(inputUrl, {
-    referer,
-    timeoutMs,
-    retries,
-  });
+  const refererVariants = buildRefererVariants(inputUrl, referer);
+  const profiles = buildRequestProfiles();
 
-  if (direct?.buffer && looksLikeImage(direct.buffer, direct.contentType)) {
-    const normalized = await normalizeImage(direct.buffer, {
-      contentType: direct.contentType,
-      sourceUrl: direct.finalUrl || inputUrl,
-      maxSide,
-      quality,
-    });
+  let lastError = null;
 
-    return {
-      buffer: normalized.buffer,
-      contentType: normalized.contentType,
-      finalUrl: direct.finalUrl,
-      method: `direct-${normalized.method}`,
-    };
-  }
-
-  if (direct?.bodyText && looksLikeHtml(direct.contentType, direct.bodyText)) {
-    const candidates = extractImageCandidates(direct.bodyText, direct.finalUrl || inputUrl);
-
-    for (const candidate of candidates) {
+  for (const profile of profiles) {
+    for (const ref of refererVariants) {
       try {
-        const nested = await fetchWithRetries(candidate, {
-          referer: direct.finalUrl || referer || inputUrl,
+        const result = await fetchAndInspect(inputUrl, {
+          profile,
+          referer: ref,
           timeoutMs,
-          retries: 1,
+          retries,
+          maxSide,
+          quality,
+          depth: 0,
+          visited: new Set(),
         });
 
-        if (nested?.buffer && looksLikeImage(nested.buffer, nested.contentType)) {
-          const normalized = await normalizeImage(nested.buffer, {
-            contentType: nested.contentType,
-            sourceUrl: nested.finalUrl || candidate,
-            maxSide,
-            quality,
-          });
-
-          return {
-            buffer: normalized.buffer,
-            contentType: normalized.contentType,
-            finalUrl: nested.finalUrl,
-            method: `html-meta-${normalized.method}`,
-          };
+        if (result) {
+          return result;
         }
-      } catch {
-        // keep trying other candidates
+      } catch (err) {
+        lastError = err;
       }
     }
   }
 
-  if (direct?.buffer && direct.buffer.length && looksLikeImage(direct.buffer, direct.contentType)) {
-    const normalized = await normalizeImage(direct.buffer, {
-      contentType: direct.contentType,
-      sourceUrl: direct.finalUrl || inputUrl,
-      maxSide,
-      quality,
-    });
-
-    return {
-      buffer: normalized.buffer,
-      contentType: normalized.contentType,
-      finalUrl: direct.finalUrl || inputUrl,
-      method: `heuristic-${normalized.method}`,
-    };
-  }
-
-  const statusText = direct?.status ? `HTTP ${direct.status}` : 'unknown response';
-  const ct = direct?.contentType || 'unknown content type';
-  throw new Error(`unsupported or non-image response (${statusText}, ${ct})`);
+  const statusText = lastError?.message || 'unknown response';
+  throw new Error(`unsupported or non-image response (${statusText})`);
 }
 
-async function fetchWithRetries(url, { referer, timeoutMs, retries }) {
+function buildRequestProfiles() {
+  return UA_PROFILES.map((profile, index) => ({
+    ...profile,
+    acceptLanguage: LANGUAGE_PROFILES[index % LANGUAGE_PROFILES.length],
+  }));
+}
+
+function buildRefererVariants(inputUrl, referer) {
+  const out = [];
+
+  const push = (value) => {
+    const v = String(value || '').trim();
+    if (!v) return;
+    if (!out.includes(v)) out.push(v);
+  };
+
+  push(referer);
+  push(getOrigin(referer));
+  push(getOrigin(inputUrl));
+  push('');
+
+  return out;
+}
+
+async function fetchAndInspect(url, context) {
+  const resource = await fetchWithRetries(url, {
+    profile: context.profile,
+    referer: context.referer,
+    timeoutMs: context.timeoutMs,
+    retries: context.retries,
+  });
+
+  return inspectResource(resource, {
+    ...context,
+    url,
+  });
+}
+
+async function fetchWithRetries(url, { profile, referer, timeoutMs, retries }) {
   let lastError = null;
 
   for (let attempt = 0; attempt <= retries; attempt += 1) {
     try {
-      return await fetchOnce(url, { referer, timeoutMs });
+      return await fetchOnce(url, { profile, referer, timeoutMs });
     } catch (err) {
       lastError = err;
       if (attempt < retries) {
@@ -133,17 +170,24 @@ async function fetchWithRetries(url, { referer, timeoutMs, retries }) {
   throw lastError || new Error('download failed');
 }
 
-async function fetchOnce(url, { referer, timeoutMs }) {
+async function fetchOnce(url, { profile, referer, timeoutMs }) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(new Error('timeout')), timeoutMs);
 
   try {
     const headers = {
-      'User-Agent': UA,
-      Accept: ACCEPT,
-      'Accept-Language': LANG,
+      'User-Agent': profile.userAgent,
+      Accept: ACCEPT_IMAGE,
+      'Accept-Language': profile.acceptLanguage,
+      'Accept-Encoding': 'gzip, deflate, br',
       'Cache-Control': 'no-cache',
       Pragma: 'no-cache',
+      DNT: '1',
+      'Upgrade-Insecure-Requests': '1',
+      'Sec-Fetch-Site': getSecFetchSite(url, referer),
+      'Sec-Fetch-Mode': 'no-cors',
+      'Sec-Fetch-Dest': 'image',
+      ...profile.extraHeaders,
     };
 
     if (referer) {
@@ -174,6 +218,7 @@ async function fetchOnce(url, { referer, timeoutMs }) {
       finalUrl,
       status,
       bodyText,
+      headers: response.headers,
     };
   } catch (err) {
     throw new Error(normalizeError(err));
@@ -181,6 +226,110 @@ async function fetchOnce(url, { referer, timeoutMs }) {
     clearTimeout(timer);
   }
 }
+async function inspectResource(resource, context) {
+  if (!resource) return null;
+
+  const fingerprint = [
+    context.url || '',
+    resource.finalUrl || '',
+    resource.status || '',
+    context.referer || '',
+    context.profile?.id || '',
+  ].join('|');
+
+  if (context.visited?.has(fingerprint)) {
+    return null;
+  }
+  if (context.visited) {
+    context.visited.add(fingerprint);
+  }
+
+  if (resource.buffer && looksLikeImage(resource.buffer, resource.contentType)) {
+    const normalized = await normalizeImage(resource.buffer, {
+      contentType: resource.contentType,
+      sourceUrl: resource.finalUrl || context.url,
+      maxSide: context.maxSide,
+      quality: context.quality,
+    });
+
+    return {
+      buffer: normalized.buffer,
+      contentType: normalized.contentType,
+      finalUrl: resource.finalUrl || context.url,
+      method: `${context.profile.id}-${normalized.method}`,
+    };
+  }
+
+  const canParseHtml =
+    looksLikeHtml(resource.contentType, resource.bodyText) ||
+    (resource.bodyText && resource.bodyText.length > 0 && resource.status >= 400);
+
+  if (!canParseHtml) {
+    return null;
+  }
+
+  const pageUrl = resource.finalUrl || context.url;
+  const candidates = extractImageCandidates(resource.bodyText || '', pageUrl);
+
+  if (!candidates.length) {
+    return null;
+  }
+
+  const candidateReferers = buildCandidateReferers(pageUrl, context.referer);
+
+  for (const candidate of candidates) {
+    for (const ref of candidateReferers) {
+      const candidateKey = `${candidate}|${ref}|${context.profile.id}`;
+      if (context.visited?.has(candidateKey)) {
+        continue;
+      }
+      if (context.visited) {
+        context.visited.add(candidateKey);
+      }
+
+      try {
+        const next = await fetchWithRetries(candidate, {
+          profile: context.profile,
+          referer: ref,
+          timeoutMs: context.timeoutMs,
+          retries: 1,
+        });
+
+        const result = await inspectResource(next, {
+          ...context,
+          url: candidate,
+          referer: ref,
+          depth: (context.depth || 0) + 1,
+        });
+
+        if (result) {
+          return result;
+        }
+      } catch {
+        // keep trying
+      }
+    }
+  }
+
+  return null;
+}
+
+function buildCandidateReferers(pageUrl, originalReferer) {
+  const out = [];
+  const push = (value) => {
+    const v = String(value || '').trim();
+    if (!v) return;
+    if (!out.includes(v)) out.push(v);
+  };
+
+  push(pageUrl);
+  push(originalReferer);
+  push(getOrigin(pageUrl));
+  push('');
+
+  return out;
+}
+
 function extractImageCandidates(html, baseUrl) {
   const candidates = [];
   const add = (value) => {
@@ -195,6 +344,7 @@ function extractImageCandidates(html, baseUrl) {
     /<meta[^>]+name=["']og:image["'][^>]+content=["']([^"']+)["'][^>]*>/gi,
     /<meta[^>]+property=["']twitter:image["'][^>]+content=["']([^"']+)["'][^>]*>/gi,
     /<meta[^>]+name=["']twitter:image(?:\:src)?["'][^>]+content=["']([^"']+)["'][^>]*>/gi,
+    /<meta[^>]+property=["']og:image:secure_url["'][^>]+content=["']([^"']+)["'][^>]*>/gi,
     /<link[^>]+rel=["'][^"']*image_src[^"']*["'][^>]+href=["']([^"']+)["'][^>]*>/gi,
   ];
 
@@ -215,6 +365,7 @@ function extractImageCandidates(html, baseUrl) {
     /data-src=["']([^"']+)["']/gi,
     /data-lazy-src=["']([^"']+)["']/gi,
     /data-original=["']([^"']+)["']/gi,
+    /data-full=["']([^"']+)["']/gi,
   ];
 
   lazyRegexes.forEach((regex) => {
@@ -318,10 +469,13 @@ function looksLikeImage(buffer, contentType) {
     if (head === 'GIF87a' || head === 'GIF89a') return true;
   }
   if (buffer.length >= 2 && buffer[0] === 0x42 && buffer[1] === 0x4d) return true;
-  if (buffer.length >= 4 && (
-    (buffer[0] === 0x49 && buffer[1] === 0x49 && buffer[2] === 0x2a && buffer[3] === 0x00) ||
-    (buffer[0] === 0x4d && buffer[1] === 0x4d && buffer[2] === 0x00 && buffer[3] === 0x2a)
-  )) return true;
+  if (
+    buffer.length >= 4 &&
+    ((buffer[0] === 0x49 && buffer[1] === 0x49 && buffer[2] === 0x2a && buffer[3] === 0x00) ||
+      (buffer[0] === 0x4d && buffer[1] === 0x4d && buffer[2] === 0x00 && buffer[3] === 0x2a))
+  ) {
+    return true;
+  }
 
   if (buffer.length >= 12) {
     const head = buffer.subarray(0, 12).toString('ascii');
@@ -334,6 +488,22 @@ function looksLikeImage(buffer, contentType) {
   return false;
 }
 
+function getOrigin(value) {
+  try {
+    return new URL(String(value || '')).origin;
+  } catch {
+    return '';
+  }
+}
+
+function getSecFetchSite(url, referer) {
+  const target = getOrigin(url);
+  const ref = getOrigin(referer);
+
+  if (!ref) return 'none';
+  if (ref === target) return 'same-origin';
+  return 'cross-site';
+}
 function resolveUrl(candidate, baseUrl) {
   const value = String(candidate || '').trim();
   if (!value) return value;
@@ -350,6 +520,7 @@ function resolveUrl(candidate, baseUrl) {
     return value;
   }
 }
+
 function normalizeError(err) {
   const message = String(err?.message || err || 'download failed').toLowerCase();
 
