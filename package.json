@@ -1,10 +1,11 @@
 {
-  "name": "photo-downloader-pro",
-  "version": "2.0.0",
-  "description": "Wolt-inspired photo downloader for Excel catalogs with ZIP export and partner-site fallback download methods.",
+  "name": "piccatch",
+  "version": "4.0.0",
+  "description": "PicCatch merchant tools for processing Excel catalogs, downloading images, and exporting ZIP archives.",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "postinstall": "playwright install chromium"
   },
   "dependencies": {
     "archiver": "^7.0.1",
@@ -12,6 +13,7 @@
     "express": "^4.21.2",
     "helmet": "^8.0.0",
     "morgan": "^1.10.0",
+    "playwright": "^1.55.0",
     "sharp": "^0.35.2"
   },
   "engines": {
