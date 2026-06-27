@@ -31,7 +31,7 @@
       </div>
 
       <div class="topbar-actions">
-        <div id="modeBadge" class="chip mode-badge-static" aria-disabled="true">Balanced</div>
+        <div class="chip mode-badge-static" id="modeBadge" aria-disabled="true">Balanced</div>
         <button id="settingsBtn" class="btn btn-secondary" type="button">⚙ Settings</button>
         <button id="themeBtn" class="btn btn-secondary" type="button">🌙 Dark mode</button>
       </div>
@@ -40,10 +40,9 @@
     <section class="hero">
       <div class="hero-copy-wrap">
         <div class="eyebrow">PicCatch</div>
-        <h1>Merchant Image Automation</h1>
+        <h1>Batch image pipeline for merchant catalogs</h1>
         <p class="hero-copy">
-          Import an Excel catalog, fetch product images automatically, normalize supported formats,
-          and export everything as one ZIP archive.
+          Upload an Excel catalog, process images automatically, normalize formats, and export everything into a single ZIP archive.
         </p>
 
         <div class="hero-pills">
@@ -53,10 +52,15 @@
           <div class="hero-pill">Fast</div>
         </div>
       </div>
+
+      <div class="hero-watermark" aria-hidden="true">
+        <span>P</span>
+        <span>C<sup>2</sup></span>
+      </div>
     </section>
 
-    <main class="layout">
-      <section class="panel panel-left">
+    <main class="dashboard-layout">
+      <section class="panel panel-main">
         <div class="upload-head">
           <div>
             <div class="eyebrow">Step 1</div>
@@ -109,72 +113,140 @@
         <div id="status" class="status">Waiting for a file.</div>
       </section>
 
-      <aside class="panel panel-right">
-        <div class="overview-head">
-          <div>
-            <div class="eyebrow">Step 2</div>
-            <h2>Overview</h2>
-          </div>
-          <div class="overview-badge">Live status</div>
-        </div>
+      <aside class="panel panel-side">
+        <div class="dashboard-stack">
+          <div class="dashboard-card dashboard-card-hero">
+            <div class="dashboard-head">
+              <div>
+                <div class="eyebrow">Overview</div>
+                <h2>Processing dashboard</h2>
+              </div>
+              <div class="overview-badge">Live status</div>
+            </div>
 
-        <div class="stats-grid">
-          <div class="stat">
-            <span class="k">File</span>
-            <span id="fileName" class="v">—</span>
-          </div>
-          <div class="stat">
-            <span class="k">Rows to process</span>
-            <span id="rowsCount" class="v">—</span>
-          </div>
-          <div class="stat">
-            <span class="k">Ready images</span>
-            <span id="okCount" class="v">—</span>
-          </div>
-          <div class="stat">
-            <span class="k">Errors</span>
-            <span id="errCount" class="v">—</span>
-          </div>
-          <div class="stat">
-            <span class="k">Current item</span>
-            <span id="currentItem" class="v">—</span>
-          </div>
-          <div class="stat">
-            <span class="k">ZIP size</span>
-            <span id="zipSize" class="v">—</span>
-          </div>
-          <div class="stat">
-            <span class="k">Estimated finish</span>
-            <span id="estimatedFinish" class="v">—</span>
-          </div>
-        </div>
+            <div class="dashboard-metrics">
+              <div class="dash-card">
+                <span class="dash-card-label">Images</span>
+                <span id="okCount" class="dash-card-value">—</span>
+                <span class="dash-card-sub">Ready so far</span>
+              </div>
+              <div class="dash-card">
+                <span class="dash-card-label">Errors</span>
+                <span id="errCount" class="dash-card-value">—</span>
+                <span class="dash-card-sub">Failed rows</span>
+              </div>
+              <div class="dash-card">
+                <span class="dash-card-label">Speed</span>
+                <span id="currentItem" class="dash-card-value">—</span>
+                <span class="dash-card-sub">Current item</span>
+              </div>
+              <div class="dash-card">
+                <span class="dash-card-label">ZIP size</span>
+                <span id="zipSize" class="dash-card-value">—</span>
+                <span class="dash-card-sub">Archive output</span>
+              </div>
+            </div>
 
-        <div class="status-card">
-          <div class="status-card-title">What you get</div>
-          <div class="side-copy">
-            After processing, you will get a ZIP archive with the images and a report file inside.
-          </div>
-        </div>
-
-        <div id="errorSummaryCard" class="error-summary-card">
-          <div class="status-card-title">Error summary</div>
-          <div id="errorSummaryGrid" class="error-summary-grid">
-            <div class="summary-empty">No error summary yet.</div>
-          </div>
-          <div id="errorSummaryHelp" class="summary-help">
-            This will summarize what failed in the latest run.
+            <div class="dashboard-mini-grid">
+              <div class="mini-stat">
+                <span class="k">File</span>
+                <span id="fileName" class="v">—</span>
+              </div>
+              <div class="mini-stat">
+                <span class="k">Rows</span>
+                <span id="rowsCount" class="v">—</span>
+              </div>
+              <div class="mini-stat">
+                <span class="k">ETA</span>
+                <span id="estimatedFinish" class="v">—</span>
+              </div>
+            </div>
           </div>
 
-          <div class="actions actions-left">
-            <button id="retryFailedBtn" class="btn btn-secondary" type="button" disabled>Retry failed</button>
-            <button id="viewErrorsBtn" class="btn btn-secondary" type="button">View details</button>
+          <div class="dashboard-card">
+            <div class="timeline-head">
+              <div class="status-card-title">Processing timeline</div>
+              <div class="overview-badge">Realtime</div>
+            </div>
+            <div class="timeline" data-timeline>
+              <div class="timeline-step is-active">
+                <div class="dot"></div>
+                <div>
+                  <div class="label">Upload</div>
+                  <div class="detail">Pick an Excel file</div>
+                </div>
+                <div class="detail">Ready</div>
+              </div>
+              <div class="timeline-step">
+                <div class="dot"></div>
+                <div>
+                  <div class="label">Read Excel</div>
+                  <div class="detail">Parse workbook</div>
+                </div>
+                <div class="detail"></div>
+              </div>
+              <div class="timeline-step">
+                <div class="dot"></div>
+                <div>
+                  <div class="label">Auto-detect</div>
+                  <div class="detail">Map columns</div>
+                </div>
+                <div class="detail"></div>
+              </div>
+              <div class="timeline-step">
+                <div class="dot"></div>
+                <div>
+                  <div class="label">Download</div>
+                  <div class="detail">Fetch images</div>
+                </div>
+                <div class="detail"></div>
+              </div>
+              <div class="timeline-step">
+                <div class="dot"></div>
+                <div>
+                  <div class="label">Normalize</div>
+                  <div class="detail">Process formats</div>
+                </div>
+                <div class="detail"></div>
+              </div>
+              <div class="timeline-step">
+                <div class="dot"></div>
+                <div>
+                  <div class="label">Build ZIP</div>
+                  <div class="detail">Package files</div>
+                </div>
+                <div class="detail"></div>
+              </div>
+            </div>
           </div>
-        </div>
 
-        <a id="downloadBtn" class="btn btn-primary download-btn" href="#" style="display:none;">Download ZIP</a>
+          <div class="dashboard-card">
+            <div class="status-card-title">What you get</div>
+            <div class="side-copy">
+              After processing, you will get a ZIP archive with the images and a report file inside.
+            </div>
+          </div>
 
-        <div class="side-note">
-          Built for high-volume merchant catalogs.
+          <div id="errorSummaryCard" class="dashboard-card">
+            <div class="status-card-title">Error summary</div>
+            <div id="errorSummaryGrid" class="error-summary-grid">
+              <div class="summary-empty">No error summary yet.</div>
+            </div>
+            <div id="errorSummaryHelp" class="summary-help">
+              This will summarize what failed in the latest run.
+            </div>
+
+            <div class="actions actions-left">
+              <button id="retryFailedBtn" class="btn btn-secondary" type="button" disabled>Retry failed</button>
+              <button id="viewErrorsBtn" class="btn btn-secondary" type="button">View details</button>
+            </div>
+          </div>
+
+          <a id="downloadBtn" class="btn btn-primary download-btn" href="#" style="display:none;">Download ZIP</a>
+
+          <div class="dashboard-card dashboard-footer-note">
+            Built for high-volume merchant catalogs.
+          </div>
         </div>
       </aside>
     </main>
