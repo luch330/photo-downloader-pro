@@ -1,27 +1,276 @@
-<section class="hero">
-
-    <div class="hero-copy-wrap">
-
-        <div class="eyebrow">
-            Wolt Merchant Tools
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Photo downloader</title>
+  <link rel="stylesheet" href="/styles.css" />
+  <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand-wrap">
+        <div class="brand-mark" aria-hidden="true"></div>
+        <div>
+          <div class="brand-name">Wolt</div>
+          <div class="brand-sub">Merchant tools</div>
         </div>
+      </div>
 
-        <h1>
-            Photo Downloader
-        </h1>
+      <div class="topbar-actions">
+        <div id="modeBadge" class="chip mode-badge-static" aria-disabled="true">Balanced</div>
+        <button id="settingsBtn" class="btn btn-secondary" type="button">⚙ Settings</button>
+        <button id="themeBtn" class="btn btn-secondary" type="button">🌙 Dark mode</button>
+      </div>
+    </header>
 
+    <section class="hero">
+      <div class="hero-copy-wrap">
+        <div class="eyebrow">Wolt Merchant Tools</div>
+        <h1>Photo Downloader</h1>
         <p class="hero-copy">
-            Import an Excel catalog, download every product image automatically,
-            normalize all supported formats and export everything into a single ZIP archive.
+          Import an Excel catalog, download every product image automatically,
+          normalize all supported formats and export everything into a single ZIP archive.
         </p>
 
         <div class="hero-pills">
-            <div class="hero-pill">Fast</div>
-            <div class="hero-pill">Automatic</div>
-            <div class="hero-pill">Multi-format</div>
-            <div class="hero-pill">Reliable</div>
+          <div class="hero-pill">Fast</div>
+          <div class="hero-pill">Automatic</div>
+          <div class="hero-pill">Multi-format</div>
+          <div class="hero-pill">Reliable</div>
+        </div>
+      </div>
+    </section>
+
+    <main class="layout">
+      <section class="panel panel-left">
+        <div class="upload-head">
+          <div>
+            <div class="eyebrow">Step 1</div>
+            <h2>Upload catalog</h2>
+            <p class="upload-copy">Drag & drop your Excel file here or choose it manually.</p>
+          </div>
+          <div class="upload-meta">
+            <span class="mini-chip">.xlsx / .xls</span>
+            <span class="mini-chip">Header row skipped</span>
+          </div>
         </div>
 
-    </div>
+        <div id="dropzone" class="dropzone" tabindex="0" role="button" aria-label="Upload Excel file">
+          <div class="drop-icon">↓</div>
+          <h3>Drop your Excel file here</h3>
+          <p>Supports <b>.xlsx</b> and <b>.xls</b>. You can also choose a file manually.</p>
 
-</section>
+          <div class="actions">
+            <button id="chooseBtn" class="btn btn-secondary" type="button">Choose file</button>
+            <button id="runBtn" class="btn btn-primary" type="button" disabled>Create ZIP</button>
+          </div>
+
+          <input id="fileInput" class="file-input" type="file" accept=".xlsx,.xls" />
+        </div>
+
+        <div id="columnHint" class="column-hint">
+          Auto-detect will map your columns automatically.
+        </div>
+
+        <div class="pill-row">
+          <span class="pill">1) Header row</span>
+          <span class="pill">2) Item name</span>
+          <span class="pill">3) Image URL</span>
+        </div>
+
+        <div class="progress-block">
+          <div class="progress-bar"><div id="bar" class="bar"></div></div>
+          <div class="progress-meta">
+            <span id="progressText">0%</span>
+            <span id="etaText">ETA: —</span>
+          </div>
+        </div>
+
+        <div class="section-label">Preview</div>
+        <div id="previewWrap" class="preview-wrap">Upload a file to see the first rows.</div>
+
+        <div class="section-label">Live log</div>
+        <pre id="logWrap" class="log">Waiting for a file...</pre>
+
+        <div id="status" class="status">Waiting for a file.</div>
+      </section>
+
+      <aside class="panel panel-right">
+        <div class="overview-head">
+          <div>
+            <div class="eyebrow">Step 2</div>
+            <h2>Overview</h2>
+          </div>
+          <div class="overview-badge">Live status</div>
+        </div>
+
+        <div class="stats-grid">
+          <div class="stat">
+            <span class="k">File</span>
+            <span id="fileName" class="v">—</span>
+          </div>
+          <div class="stat">
+            <span class="k">Rows to process</span>
+            <span id="rowsCount" class="v">—</span>
+          </div>
+          <div class="stat">
+            <span class="k">Ready images</span>
+            <span id="okCount" class="v">—</span>
+          </div>
+          <div class="stat">
+            <span class="k">Errors</span>
+            <span id="errCount" class="v">—</span>
+          </div>
+          <div class="stat">
+            <span class="k">Current item</span>
+            <span id="currentItem" class="v">—</span>
+          </div>
+          <div class="stat">
+            <span class="k">ZIP size</span>
+            <span id="zipSize" class="v">—</span>
+          </div>
+          <div class="stat">
+            <span class="k">Estimated finish</span>
+            <span id="estimatedFinish" class="v">—</span>
+          </div>
+        </div>
+
+        <div class="status-card">
+          <div class="status-card-title">What you get</div>
+          <div class="side-copy">
+            After processing, you will get a ZIP archive with the images and a report file inside.
+          </div>
+        </div>
+
+        <div id="errorSummaryCard" class="error-summary-card">
+          <div class="status-card-title">Error summary</div>
+          <div id="errorSummaryGrid" class="error-summary-grid">
+            <div class="summary-empty">No error summary yet.</div>
+          </div>
+          <div id="errorSummaryHelp" class="summary-help">
+            This will summarize what failed in the latest run.
+          </div>
+
+          <div class="actions actions-left">
+            <button id="retryFailedBtn" class="btn btn-secondary" type="button" disabled>Retry failed</button>
+            <button id="viewErrorsBtn" class="btn btn-secondary" type="button">View details</button>
+          </div>
+        </div>
+
+        <a id="downloadBtn" class="btn btn-primary download-btn" href="#" style="display:none;">Download ZIP</a>
+
+        <div class="side-note">
+          Internal tool styling: clean, fast, and low-friction.
+        </div>
+      </aside>
+    </main>
+  </div>
+
+  <div id="settingsModal" class="modal-overlay" hidden>
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+      <div class="modal-head">
+        <div>
+          <div class="eyebrow">Settings</div>
+          <h2 id="settingsTitle">Download modes & troubleshooting</h2>
+          <p class="modal-copy">Choose a preset or customize the values below. Manual edits switch the mode to Custom automatically.</p>
+        </div>
+        <button id="closeSettingsBtn" class="icon-btn" type="button" aria-label="Close settings">×</button>
+      </div>
+
+      <div class="mode-grid">
+        <button class="mode-card" type="button" data-mode="fast">
+          <span class="mode-title">Fast</span>
+          <span class="mode-desc">Quick, aggressive, fewer retries.</span>
+        </button>
+        <button class="mode-card active" type="button" data-mode="balanced">
+          <span class="mode-title">Balanced</span>
+          <span class="mode-desc">Best default for most cases.</span>
+        </button>
+        <button class="mode-card" type="button" data-mode="safe">
+          <span class="mode-title">Safe</span>
+          <span class="mode-desc">Slower, more reliable, more retries.</span>
+        </button>
+      </div>
+
+      <div class="mode-meta">
+        <span id="modeLabel" class="mode-badge-inline">Balanced</span>
+        <span id="customModeHint" class="mode-note">Manual edits will switch the mode to Custom automatically.</span>
+      </div>
+
+      <div class="settings-grid">
+        <label>
+          <span>Partner page URL (optional)</span>
+          <input id="refererInput" type="url" placeholder="https://partner-site.com/product-page" />
+          <small>If the images are protected, paste the product page URL here. It will be sent as Referer.</small>
+        </label>
+
+        <label>
+          <span>Timeout (seconds)</span>
+          <input id="timeoutInput" type="number" min="5" max="180" step="1" value="45" />
+        </label>
+
+        <label>
+          <span>Retries</span>
+          <input id="retryInput" type="number" min="0" max="5" step="1" value="2" />
+        </label>
+
+        <label>
+          <span>Concurrency</span>
+          <input id="concurrencyInput" type="number" min="1" max="10" step="1" value="4" />
+        </label>
+
+        <label class="checkbox">
+          <input id="browserFallbackInput" type="checkbox" checked />
+          <span>Use browser fallback</span>
+        </label>
+      </div>
+
+      <div class="modal-footer">
+        <div class="shortcut-hint">⌘O open file · ⌘Enter upload · Esc close</div>
+        <div class="actions">
+          <button id="resetSettingsBtn" class="btn btn-secondary" type="button">Reset balanced</button>
+          <button id="saveSettingsBtn" class="btn btn-primary" type="button">Save settings</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="successScreen" class="success-overlay" hidden>
+    <div class="success-card">
+      <div class="success-icon">✓</div>
+      <div class="eyebrow">ZIP ready</div>
+      <h2>Finished</h2>
+      <p class="success-copy">The archive is ready. You can download it now or retry only the failed rows if you want.</p>
+
+      <div class="success-metrics">
+        <div class="metric-card">
+          <span>Images</span>
+          <strong id="successImages">—</strong>
+        </div>
+        <div class="metric-card">
+          <span>Errors</span>
+          <strong id="successErrors">—</strong>
+        </div>
+        <div class="metric-card">
+          <span>ZIP size</span>
+          <strong id="successZipSize">—</strong>
+        </div>
+        <div class="metric-card">
+          <span>Finishes around</span>
+          <strong id="successFinish">—</strong>
+        </div>
+      </div>
+
+      <div class="actions">
+        <a id="successDownloadBtn" class="btn btn-primary" href="#">Download ZIP</a>
+        <button id="successRetryBtn" class="btn btn-secondary" type="button" style="display:none;">Retry failed</button>
+        <button id="closeSuccessBtn" class="btn btn-secondary" type="button">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
