@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Inter+Tight:wght@500;600;700;800&display=swap');
 
 :root {
   --bg: #edf5ff;
@@ -8,26 +8,26 @@
   --surface-solid: #ffffff;
 
   --text: #0f172a;
-  --text-soft: #3f4f66;
-  --text-muted: #64748b;
+  --text-soft: #344054;
+  --text-muted: #667085;
   --line: rgba(148, 163, 184, 0.22);
   --line-strong: rgba(148, 163, 184, 0.34);
 
   --brand: #00b7c3;
   --brand-2: #2f80ff;
   --brand-3: #7c3aed;
-  --brand-soft: rgba(0, 183, 195, 0.12);
-  --brand-soft-2: rgba(47, 128, 255, 0.12);
+  --brand-soft: rgba(0, 183, 195, 0.10);
+  --brand-soft-2: rgba(47, 128, 255, 0.10);
 
   --ok: #16a34a;
   --warn: #f59e0b;
   --err: #ef4444;
 
-  --shadow-lg: 0 24px 80px rgba(15, 23, 42, 0.12);
-  --shadow-md: 0 18px 40px rgba(15, 23, 42, 0.10);
-  --shadow-sm: 0 10px 24px rgba(15, 23, 42, 0.08);
+  --shadow-lg: 0 24px 70px rgba(15, 23, 42, 0.10);
+  --shadow-md: 0 16px 36px rgba(15, 23, 42, 0.09);
+  --shadow-sm: 0 10px 22px rgba(15, 23, 42, 0.06);
 
-  --r-xl: 30px;
+  --r-xl: 28px;
   --r-lg: 22px;
   --r-md: 16px;
   --r-sm: 12px;
@@ -49,12 +49,12 @@ body.theme-dark {
   --brand: #25d7e5;
   --brand-2: #64a5ff;
   --brand-3: #b57bff;
-  --brand-soft: rgba(37, 215, 229, 0.14);
-  --brand-soft-2: rgba(100, 165, 255, 0.14);
+  --brand-soft: rgba(37, 215, 229, 0.12);
+  --brand-soft-2: rgba(100, 165, 255, 0.12);
 
-  --shadow-lg: 0 24px 80px rgba(0, 0, 0, 0.42);
-  --shadow-md: 0 18px 40px rgba(0, 0, 0, 0.28);
-  --shadow-sm: 0 10px 24px rgba(0, 0, 0, 0.20);
+  --shadow-lg: 0 24px 80px rgba(0, 0, 0, 0.38);
+  --shadow-md: 0 16px 36px rgba(0, 0, 0, 0.24);
+  --shadow-sm: 0 10px 22px rgba(0, 0, 0, 0.18);
 }
 
 * {
@@ -76,22 +76,24 @@ body {
   font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   color: var(--text);
   background:
-    radial-gradient(circle at top left, rgba(0, 183, 195, 0.15), transparent 26%),
-    radial-gradient(circle at top right, rgba(47, 128, 255, 0.12), transparent 20%),
-    radial-gradient(circle at bottom right, rgba(124, 58, 237, 0.09), transparent 18%),
+    radial-gradient(circle at top left, rgba(0, 183, 195, 0.12), transparent 24%),
+    radial-gradient(circle at top right, rgba(47, 128, 255, 0.10), transparent 20%),
+    radial-gradient(circle at bottom right, rgba(124, 58, 237, 0.08), transparent 18%),
     linear-gradient(180deg, var(--bg) 0%, var(--bg-2) 100%);
   transition:
     background 260ms ease,
     color 260ms ease;
   overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: geometricPrecision;
   font-weight: 500;
 }
 
 body.theme-dark {
   background:
-    radial-gradient(circle at top left, rgba(37, 215, 229, 0.12), transparent 26%),
-    radial-gradient(circle at top right, rgba(100, 165, 255, 0.10), transparent 20%),
-    radial-gradient(circle at bottom right, rgba(181, 123, 255, 0.10), transparent 18%),
+    radial-gradient(circle at top left, rgba(37, 215, 229, 0.10), transparent 24%),
+    radial-gradient(circle at top right, rgba(100, 165, 255, 0.08), transparent 20%),
+    radial-gradient(circle at bottom right, rgba(181, 123, 255, 0.08), transparent 18%),
     linear-gradient(180deg, var(--bg) 0%, var(--bg-2) 100%);
 }
 
@@ -102,14 +104,13 @@ body::before {
   pointer-events: none;
   background:
     linear-gradient(120deg, rgba(255, 255, 255, 0.10), transparent 25%, transparent 75%, rgba(255, 255, 255, 0.08)),
-    radial-gradient(circle at 50% 0%, rgba(255, 255, 255, 0.18), transparent 28%);
-  opacity: 0.55;
+    radial-gradient(circle at 50% 0%, rgba(255, 255, 255, 0.16), transparent 28%);
+  opacity: 0.45;
   mix-blend-mode: screen;
 }
 
 body.theme-dark::before {
-  opacity: 0.18;
-  mix-blend-mode: screen;
+  opacity: 0.16;
 }
 
 .app-shell {
@@ -125,7 +126,7 @@ body.theme-dark::before {
   justify-content: space-between;
   align-items: center;
   gap: 16px;
-  margin-bottom: 22px;
+  margin-bottom: 18px;
 }
 
 .brand-wrap {
@@ -142,11 +143,10 @@ body.theme-dark::before {
     linear-gradient(135deg, rgba(255, 255, 255, 0.50), rgba(255, 255, 255, 0.08)),
     linear-gradient(135deg, var(--brand), var(--brand-2) 55%, var(--brand-3));
   box-shadow:
-    0 16px 30px rgba(0, 183, 195, 0.18),
-    inset 0 1px 0 rgba(255, 255, 255, 0.25);
+    0 16px 30px rgba(0, 183, 195, 0.16),
+    inset 0 1px 0 rgba(255, 255, 255, 0.24);
   position: relative;
   overflow: hidden;
-  transform: translateZ(0);
   animation: floaty 5s ease-in-out infinite;
 }
 
@@ -154,24 +154,26 @@ body.theme-dark::before {
   content: "";
   position: absolute;
   inset: -30% -40%;
-  background: linear-gradient(120deg, transparent 20%, rgba(255,255,255,0.35) 50%, transparent 80%);
+  background: linear-gradient(120deg, transparent 20%, rgba(255,255,255,0.32) 50%, transparent 80%);
   transform: translateX(-90%) rotate(20deg);
   animation: shine 5.5s ease-in-out infinite;
 }
 
 .brand-name {
+  font-family: 'Inter Tight', 'Inter', system-ui, sans-serif;
   font-size: 22px;
   line-height: 1;
   font-weight: 800;
-  letter-spacing: -0.04em;
+  letter-spacing: -0.05em;
 }
 
 .brand-sub {
-  margin-top: 5px;
+  margin-top: 4px;
   color: var(--text-muted);
-  font-size: 14px;
-  line-height: 1.4;
-  font-weight: 500;
+  font-size: 13px;
+  line-height: 1.25;
+  font-weight: 600;
+  letter-spacing: -0.01em;
 }
 
 .topbar-actions {
@@ -195,7 +197,7 @@ body.theme-dark::before {
   letter-spacing: -0.01em;
   border: 1px solid var(--line);
   background:
-    linear-gradient(180deg, rgba(255,255,255,0.75), rgba(255,255,255,0.55)),
+    linear-gradient(180deg, rgba(255,255,255,0.74), rgba(255,255,255,0.56)),
     var(--surface-solid);
   color: var(--text-soft);
   box-shadow: var(--shadow-sm);
@@ -208,7 +210,8 @@ body.theme-dark::before {
   color: var(--brand-2);
   border-color: rgba(0, 183, 195, 0.18);
   background:
-    linear-gradient(180deg, rgba(0, 183, 195, 0.14), rgba(47, 128, 255, 0.10));
+    linear-gradient(180deg, rgba(0, 183, 195, 0.12), rgba(47, 128, 255, 0.08)),
+    var(--surface-solid);
 }
 
 .chip-button {
@@ -218,8 +221,8 @@ body.theme-dark::before {
 
 .chip-button:hover {
   transform: translateY(-1px);
-  filter: saturate(1.05);
-  box-shadow: 0 14px 28px rgba(0, 183, 195, 0.18);
+  filter: saturate(1.04);
+  box-shadow: 0 14px 26px rgba(0, 183, 195, 0.16);
 }
 
 .hero {
@@ -228,35 +231,42 @@ body.theme-dark::before {
   justify-content: space-between;
   gap: 18px;
   flex-wrap: wrap;
-  margin: 10px 0 24px;
+  margin: 6px 0 22px;
 }
 
 .hero-copy-wrap {
   max-width: 900px;
 }
 
+.hero .eyebrow {
+  margin-bottom: 10px;
+}
+
 .hero h1 {
   margin: 0 0 10px;
-  max-width: 900px;
-  font-size: clamp(34px, 4vw, 50px);
-  line-height: 1.02;
+  max-width: 860px;
+  font-family: 'Inter Tight', 'Inter', system-ui, sans-serif;
+  font-size: clamp(30px, 3.8vw, 48px);
+  line-height: 0.98;
   letter-spacing: -0.07em;
   font-weight: 800;
 }
 
 .hero-copy {
   margin: 0;
+  max-width: 760px;
   color: var(--text-muted);
-  font-size: 17px;
-  line-height: 1.7;
+  font-size: 16px;
+  line-height: 1.6;
   font-weight: 500;
-  max-width: 720px;
+  letter-spacing: -0.01em;
 }
 
 .hero-pills {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+  margin-top: 14px;
 }
 
 .hero-pill {
@@ -277,7 +287,7 @@ body.theme-dark::before {
   border-radius: var(--r-xl);
   border: 1px solid var(--line);
   background:
-    linear-gradient(180deg, rgba(255,255,255,0.78), rgba(255,255,255,0.64)),
+    linear-gradient(180deg, rgba(255,255,255,0.80), rgba(255,255,255,0.64)),
     var(--surface);
   box-shadow: var(--shadow-lg);
   backdrop-filter: blur(16px);
@@ -296,8 +306,8 @@ body.theme-dark .panel {
   position: absolute;
   inset: 0;
   background:
-    radial-gradient(circle at top left, rgba(0, 183, 195, 0.08), transparent 30%),
-    radial-gradient(circle at top right, rgba(47, 128, 255, 0.08), transparent 28%);
+    radial-gradient(circle at top left, rgba(0, 183, 195, 0.06), transparent 30%),
+    radial-gradient(circle at top right, rgba(47, 128, 255, 0.06), transparent 28%);
   pointer-events: none;
 }
 
@@ -322,9 +332,10 @@ body.theme-dark .panel {
 .modal-head h2,
 .success-card h2 {
   margin: 6px 0 6px;
+  font-family: 'Inter Tight', 'Inter', system-ui, sans-serif;
   font-size: 20px;
-  line-height: 1.2;
-  letter-spacing: -0.04em;
+  line-height: 1.15;
+  letter-spacing: -0.05em;
   font-weight: 800;
 }
 
@@ -342,8 +353,9 @@ body.theme-dark .panel {
 .upload-copy {
   margin: 0;
   font-size: 14px;
-  line-height: 1.65;
+  line-height: 1.6;
   font-weight: 500;
+  letter-spacing: -0.01em;
 }
 
 .eyebrow {
@@ -352,14 +364,15 @@ body.theme-dark .panel {
   gap: 8px;
   padding: 7px 11px;
   border-radius: 999px;
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.10em;
   text-transform: uppercase;
   color: var(--brand-2);
   background:
-    linear-gradient(180deg, rgba(0, 183, 195, 0.15), rgba(47, 128, 255, 0.12));
-  border: 1px solid rgba(0, 183, 195, 0.22);
+    linear-gradient(180deg, rgba(0, 183, 195, 0.14), rgba(47, 128, 255, 0.10)),
+    var(--surface-solid);
+  border: 1px solid rgba(0, 183, 195, 0.18);
   box-shadow: var(--shadow-sm);
 }
 
@@ -376,7 +389,7 @@ body.theme-dark .panel {
   font-size: 12px;
   color: var(--text-soft);
   background:
-    linear-gradient(180deg, rgba(255,255,255,0.78), rgba(255,255,255,0.58)),
+    linear-gradient(180deg, rgba(255,255,255,0.78), rgba(255,255,255,0.60)),
     var(--surface-solid);
 }
 
@@ -384,7 +397,7 @@ body.theme-dark .panel {
   position: relative;
   z-index: 1;
   border-radius: 26px;
-  border: 1.5px dashed rgba(100, 116, 139, 0.34);
+  border: 1.5px dashed rgba(100, 116, 139, 0.32);
   background:
     linear-gradient(180deg, rgba(255,255,255,0.88), rgba(248,251,255,0.86)),
     var(--surface-solid);
@@ -428,7 +441,7 @@ body.theme-dark .dropzone {
 
 .dropzone:hover {
   transform: translateY(-1px);
-  border-color: rgba(0, 183, 195, 0.58);
+  border-color: rgba(0, 183, 195, 0.50);
   box-shadow: 0 18px 34px rgba(15, 23, 42, 0.10);
 }
 
@@ -436,10 +449,10 @@ body.theme-dark .dropzone {
   transform: translateY(-2px) scale(1.004);
   border-color: rgba(0, 183, 195, 0.92);
   box-shadow:
-    0 22px 44px rgba(0, 183, 195, 0.18),
-    0 0 0 1px rgba(0, 183, 195, 0.20) inset;
+    0 22px 44px rgba(0, 183, 195, 0.16),
+    0 0 0 1px rgba(0, 183, 195, 0.18) inset;
   background:
-    linear-gradient(180deg, rgba(0, 183, 195, 0.10), rgba(47, 128, 255, 0.06)),
+    linear-gradient(180deg, rgba(0, 183, 195, 0.08), rgba(47, 128, 255, 0.05)),
     var(--surface-solid);
 }
 
@@ -455,7 +468,7 @@ body.theme-dark .dropzone {
   font-weight: 800;
   background:
     linear-gradient(135deg, rgba(255,255,255,0.56), rgba(255,255,255,0.12)),
-    linear-gradient(135deg, rgba(0, 183, 195, 0.22), rgba(47, 128, 255, 0.16));
+    linear-gradient(135deg, rgba(0, 183, 195, 0.20), rgba(47, 128, 255, 0.14));
   box-shadow:
     0 14px 28px rgba(0, 183, 195, 0.10),
     inset 0 1px 0 rgba(255,255,255,0.30);
@@ -464,9 +477,10 @@ body.theme-dark .dropzone {
 
 .dropzone h3 {
   margin: 8px 0 6px;
+  font-family: 'Inter Tight', 'Inter', system-ui, sans-serif;
   font-size: 18px;
-  line-height: 1.25;
-  letter-spacing: -0.03em;
+  line-height: 1.22;
+  letter-spacing: -0.04em;
   font-weight: 800;
 }
 
@@ -474,7 +488,7 @@ body.theme-dark .dropzone {
   margin: 0;
   color: var(--text-muted);
   font-size: 14px;
-  line-height: 1.6;
+  line-height: 1.55;
   font-weight: 500;
 }
 
@@ -535,7 +549,7 @@ body.theme-dark .dropzone {
   content: "";
   position: absolute;
   inset: 0;
-  background: linear-gradient(120deg, transparent 20%, rgba(255,255,255,0.22) 50%, transparent 80%);
+  background: linear-gradient(120deg, transparent 20%, rgba(255,255,255,0.20) 50%, transparent 80%);
   transform: translateX(-120%);
   transition: transform 420ms ease;
 }
@@ -555,18 +569,18 @@ body.theme-dark .dropzone {
 .btn-primary {
   background: linear-gradient(135deg, var(--brand), var(--brand-2));
   color: white;
-  box-shadow: 0 16px 28px rgba(0, 183, 195, 0.24);
+  box-shadow: 0 16px 28px rgba(0, 183, 195, 0.22);
 }
 
 .btn-primary:hover {
-  box-shadow: 0 18px 32px rgba(0, 183, 195, 0.28);
+  box-shadow: 0 18px 32px rgba(0, 183, 195, 0.26);
 }
 
 .btn-secondary {
   color: var(--text);
   border: 1px solid var(--line);
   background:
-    linear-gradient(180deg, rgba(255,255,255,0.82), rgba(248,251,255,0.75)),
+    linear-gradient(180deg, rgba(255,255,255,0.82), rgba(248,251,255,0.74)),
     var(--surface-solid);
 }
 
@@ -578,7 +592,7 @@ body.theme-dark .btn-secondary {
 }
 
 .btn-secondary:hover {
-  border-color: rgba(0, 183, 195, 0.30);
+  border-color: rgba(0, 183, 195, 0.28);
 }
 
 .btn-primary:disabled,
@@ -607,6 +621,8 @@ body.theme-dark .btn-secondary {
   flex-wrap: wrap;
   position: relative;
   z-index: 1;
+  font-weight: 500;
+  color: var(--text-soft);
 }
 
 .pill-row {
@@ -618,8 +634,7 @@ body.theme-dark .btn-secondary {
   z-index: 1;
 }
 
-.pill,
-.hero-pill {
+.pill {
   padding: 8px 12px;
   font-size: 12px;
   color: var(--text-soft);
@@ -637,7 +652,7 @@ body.theme-dark .btn-secondary {
   border-radius: 999px;
   overflow: hidden;
   background:
-    linear-gradient(180deg, rgba(148, 163, 184, 0.20), rgba(148, 163, 184, 0.10)),
+    linear-gradient(180deg, rgba(148, 163, 184, 0.18), rgba(148, 163, 184, 0.08)),
     #dfe8f5;
   box-shadow: inset 0 1px 1px rgba(15, 23, 42, 0.05);
 }
@@ -655,7 +670,7 @@ body.theme-dark .progress-bar {
   background:
     linear-gradient(90deg, var(--brand), var(--brand-2) 60%, var(--brand-3));
   background-size: 140% 100%;
-  box-shadow: 0 10px 20px rgba(0, 183, 195, 0.22);
+  box-shadow: 0 10px 20px rgba(0, 183, 195, 0.18);
   transition: width 220ms ease;
   position: relative;
   overflow: hidden;
@@ -682,10 +697,10 @@ body.theme-dark .progress-bar {
 
 .section-label {
   margin: 16px 0 8px;
-  font-size: 12px;
+  font-size: 11px;
   text-transform: uppercase;
-  letter-spacing: 0.10em;
-  font-weight: 700;
+  letter-spacing: 0.12em;
+  font-weight: 800;
   color: var(--text-muted);
   position: relative;
   z-index: 1;
@@ -730,6 +745,8 @@ body.theme-dark .preview-wrap {
     var(--surface-solid);
   color: var(--text);
   font-weight: 700;
+  font-family: 'Inter Tight', 'Inter', system-ui, sans-serif;
+  letter-spacing: -0.03em;
 }
 
 body.theme-dark .preview-table th {
@@ -791,6 +808,7 @@ body.theme-dark .preview-table td {
   white-space: pre-wrap;
   line-height: 1.6;
   font-weight: 500;
+  color: var(--text-soft);
 }
 
 body.theme-dark .status {
@@ -829,9 +847,9 @@ body.theme-dark .status {
   padding: 8px 12px;
   font-size: 12px;
   color: var(--brand-2);
-  border-color: rgba(0, 183, 195, 0.20);
+  border-color: rgba(0, 183, 195, 0.18);
   background:
-    linear-gradient(180deg, rgba(0, 183, 195, 0.12), rgba(47, 128, 255, 0.08)),
+    linear-gradient(180deg, rgba(0, 183, 195, 0.10), rgba(47, 128, 255, 0.07)),
     var(--surface-solid);
 }
 
@@ -878,7 +896,7 @@ body.theme-dark .gallery-card {
 .metric-card:hover,
 .gallery-card:hover {
   transform: translateY(-1px);
-  border-color: rgba(0, 183, 195, 0.24);
+  border-color: rgba(0, 183, 195, 0.22);
   box-shadow: 0 16px 28px rgba(15, 23, 42, 0.10);
 }
 
@@ -887,16 +905,17 @@ body.theme-dark .gallery-card {
   margin-bottom: 4px;
   font-size: 11px;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.10em;
   color: var(--text-muted);
-  font-weight: 700;
+  font-weight: 800;
 }
 
 .stat .v {
   display: block;
+  font-family: 'Inter Tight', 'Inter', system-ui, sans-serif;
   font-size: 18px;
-  line-height: 1.25;
-  letter-spacing: -0.03em;
+  line-height: 1.22;
+  letter-spacing: -0.04em;
   font-weight: 800;
   color: var(--text);
   word-break: break-word;
@@ -910,10 +929,10 @@ body.theme-dark .gallery-card {
 
 .status-card-title {
   margin-bottom: 8px;
-  font-size: 12px;
-  letter-spacing: 0.08em;
+  font-size: 11px;
+  letter-spacing: 0.10em;
   text-transform: uppercase;
-  font-weight: 700;
+  font-weight: 800;
 }
 
 .error-summary-grid {
@@ -942,14 +961,15 @@ body.theme-dark .gallery-card {
   color: var(--text-muted);
   font-size: 11px;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
-  font-weight: 700;
+  letter-spacing: 0.10em;
+  font-weight: 800;
 }
 
 .summary-value {
   display: block;
+  font-family: 'Inter Tight', 'Inter', system-ui, sans-serif;
   font-size: 20px;
-  letter-spacing: -0.03em;
+  letter-spacing: -0.04em;
   font-weight: 800;
   color: var(--text);
 }
@@ -1024,7 +1044,7 @@ body.theme-dark .icon-btn {
   background:
     linear-gradient(180deg, rgba(255,255,255,0.96), rgba(248,251,255,0.88)),
     var(--surface-strong);
-  box-shadow: 0 32px 90px rgba(0, 0, 0, 0.24);
+  box-shadow: 0 32px 90px rgba(0, 0, 0, 0.22);
   padding: 18px;
   animation: popIn 220ms ease;
 }
@@ -1057,7 +1077,7 @@ body.theme-dark .success-card {
   margin: 0;
   max-width: 760px;
   font-size: 14px;
-  line-height: 1.65;
+  line-height: 1.6;
   font-weight: 500;
 }
 
@@ -1075,18 +1095,20 @@ body.theme-dark .success-card {
 }
 
 .mode-card.active {
-  border-color: rgba(0, 183, 195, 0.38);
+  border-color: rgba(0, 183, 195, 0.34);
   background:
-    linear-gradient(180deg, rgba(0, 183, 195, 0.12), rgba(47, 128, 255, 0.07)),
+    linear-gradient(180deg, rgba(0, 183, 195, 0.10), rgba(47, 128, 255, 0.06)),
     var(--surface-solid);
 }
 
 .mode-title {
   display: block;
   margin-bottom: 6px;
+  font-family: 'Inter Tight', 'Inter', system-ui, sans-serif;
   font-size: 15px;
   font-weight: 800;
   color: var(--text);
+  letter-spacing: -0.04em;
 }
 
 .mode-desc {
@@ -1126,10 +1148,10 @@ body.theme-dark .success-card {
 .settings-grid label > span {
   display: block;
   margin-bottom: 8px;
-  font-size: 12px;
+  font-size: 11px;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
-  font-weight: 700;
+  letter-spacing: 0.08em;
+  font-weight: 800;
   color: var(--text-muted);
 }
 
@@ -1158,8 +1180,8 @@ body.theme-dark .settings-grid input[type="number"] {
 
 .settings-grid input[type="url"]:focus,
 .settings-grid input[type="number"]:focus {
-  border-color: rgba(0, 183, 195, 0.70);
-  box-shadow: 0 0 0 4px rgba(0, 183, 195, 0.12);
+  border-color: rgba(0, 183, 195, 0.68);
+  box-shadow: 0 0 0 4px rgba(0, 183, 195, 0.10);
 }
 
 .settings-grid small {
@@ -1225,8 +1247,8 @@ body.theme-dark .settings-grid input[type="number"] {
   font-weight: 700;
   color: var(--brand-2);
   background:
-    linear-gradient(135deg, rgba(0, 183, 195, 0.18), rgba(47, 128, 255, 0.14));
-  box-shadow: 0 16px 28px rgba(0, 183, 195, 0.14);
+    linear-gradient(135deg, rgba(0, 183, 195, 0.16), rgba(47, 128, 255, 0.12));
+  box-shadow: 0 16px 28px rgba(0, 183, 195, 0.12);
   animation: floaty 4s ease-in-out infinite;
 }
 
@@ -1239,7 +1261,7 @@ body.theme-dark .settings-grid input[type="number"] {
   margin: 0 auto 16px;
   max-width: 660px;
   font-size: 14px;
-  line-height: 1.7;
+  line-height: 1.65;
   font-weight: 500;
   color: var(--text-muted);
 }
@@ -1261,15 +1283,16 @@ body.theme-dark .settings-grid input[type="number"] {
   margin-bottom: 6px;
   font-size: 11px;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.10em;
   color: var(--text-muted);
-  font-weight: 700;
+  font-weight: 800;
 }
 
 .metric-card strong {
   display: block;
+  font-family: 'Inter Tight', 'Inter', system-ui, sans-serif;
   font-size: 18px;
-  letter-spacing: -0.03em;
+  letter-spacing: -0.04em;
   color: var(--text);
 }
 
@@ -1328,7 +1351,7 @@ textarea {
 }
 
 :focus-visible {
-  outline: 3px solid rgba(0, 183, 195, 0.24);
+  outline: 3px solid rgba(0, 183, 195, 0.22);
   outline-offset: 2px;
 }
 
@@ -1416,7 +1439,11 @@ textarea {
   }
 
   .hero h1 {
-    font-size: clamp(28px, 9vw, 42px);
+    font-size: clamp(26px, 8vw, 40px);
+  }
+
+  .hero-copy {
+    font-size: 15px;
   }
 
   .settings-grid {
