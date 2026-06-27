@@ -1,8 +1,8 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Inter+Tight:wght@500;600;700;800&display=swap');
 
 :root {
-  --bg: #edf5ff;
-  --bg-2: #f7fbff;
+  --bg: #eef6ff;
+  --bg-2: #f8fbff;
   --surface: rgba(255, 255, 255, 0.78);
   --surface-strong: rgba(255, 255, 255, 0.96);
   --surface-solid: #ffffff;
@@ -80,9 +80,7 @@ body {
     radial-gradient(circle at top right, rgba(47, 128, 255, 0.10), transparent 20%),
     radial-gradient(circle at bottom right, rgba(124, 58, 237, 0.08), transparent 18%),
     linear-gradient(180deg, var(--bg) 0%, var(--bg-2) 100%);
-  transition:
-    background 260ms ease,
-    color 260ms ease;
+  transition: background 260ms ease, color 260ms ease;
   overflow-x: hidden;
   -webkit-font-smoothing: antialiased;
   text-rendering: geometricPrecision;
@@ -139,6 +137,8 @@ body.theme-dark::before {
   width: 48px;
   height: 48px;
   border-radius: 18px;
+  display: grid;
+  place-items: center;
   background:
     linear-gradient(135deg, rgba(255, 255, 255, 0.50), rgba(255, 255, 255, 0.08)),
     linear-gradient(135deg, var(--brand), var(--brand-2) 55%, var(--brand-3));
@@ -148,6 +148,11 @@ body.theme-dark::before {
   position: relative;
   overflow: hidden;
   animation: floaty 5s ease-in-out infinite;
+  color: white;
+  font-family: 'Inter Tight', 'Inter', system-ui, sans-serif;
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: -0.06em;
 }
 
 .brand-mark::after {
@@ -405,11 +410,7 @@ body.theme-dark .panel {
   text-align: center;
   cursor: pointer;
   overflow: hidden;
-  transition:
-    transform 180ms ease,
-    box-shadow 180ms ease,
-    border-color 180ms ease,
-    background 180ms ease;
+  transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease, background 180ms ease;
 }
 
 body.theme-dark .dropzone {
@@ -448,9 +449,7 @@ body.theme-dark .dropzone {
 .dropzone.dragover {
   transform: translateY(-2px) scale(1.004);
   border-color: rgba(0, 183, 195, 0.92);
-  box-shadow:
-    0 22px 44px rgba(0, 183, 195, 0.16),
-    0 0 0 1px rgba(0, 183, 195, 0.18) inset;
+  box-shadow: 0 22px 44px rgba(0, 183, 195, 0.16), 0 0 0 1px rgba(0, 183, 195, 0.18) inset;
   background:
     linear-gradient(180deg, rgba(0, 183, 195, 0.08), rgba(47, 128, 255, 0.05)),
     var(--surface-solid);
@@ -469,9 +468,7 @@ body.theme-dark .dropzone {
   background:
     linear-gradient(135deg, rgba(255,255,255,0.56), rgba(255,255,255,0.12)),
     linear-gradient(135deg, rgba(0, 183, 195, 0.20), rgba(47, 128, 255, 0.14));
-  box-shadow:
-    0 14px 28px rgba(0, 183, 195, 0.10),
-    inset 0 1px 0 rgba(255,255,255,0.30);
+  box-shadow: 0 14px 28px rgba(0, 183, 195, 0.10), inset 0 1px 0 rgba(255,255,255,0.30);
   animation: floaty 4s ease-in-out infinite;
 }
 
@@ -517,13 +514,7 @@ body.theme-dark .dropzone {
 .hero-pill,
 .chip,
 .mini-chip {
-  transition:
-    transform 180ms ease,
-    box-shadow 180ms ease,
-    border-color 180ms ease,
-    background 180ms ease,
-    color 180ms ease,
-    opacity 180ms ease;
+  transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease, background 180ms ease, color 180ms ease, opacity 180ms ease;
 }
 
 .btn {
@@ -667,8 +658,7 @@ body.theme-dark .progress-bar {
   width: 0%;
   height: 100%;
   border-radius: inherit;
-  background:
-    linear-gradient(90deg, var(--brand), var(--brand-2) 60%, var(--brand-3));
+  background: linear-gradient(90deg, var(--brand), var(--brand-2) 60%, var(--brand-3));
   background-size: 140% 100%;
   box-shadow: 0 10px 20px rgba(0, 183, 195, 0.18);
   transition: width 220ms ease;
@@ -851,6 +841,17 @@ body.theme-dark .status {
   background:
     linear-gradient(180deg, rgba(0, 183, 195, 0.10), rgba(47, 128, 255, 0.07)),
     var(--surface-solid);
+}
+
+.mode-badge-static {
+  cursor: default !important;
+  pointer-events: none !important;
+  user-select: none !important;
+}
+
+.mode-badge-static:hover {
+  transform: none !important;
+  box-shadow: var(--shadow-sm) !important;
 }
 
 .stats-grid {
@@ -1293,43 +1294,8 @@ body.theme-dark .settings-grid input[type="number"] {
   font-family: 'Inter Tight', 'Inter', system-ui, sans-serif;
   font-size: 18px;
   letter-spacing: -0.04em;
+  font-weight: 800;
   color: var(--text);
-}
-
-.success-gallery {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px;
-  margin-bottom: 16px;
-}
-
-.gallery-card {
-  min-height: 98px;
-  display: grid;
-  place-items: center;
-  gap: 8px;
-  padding: 14px;
-  color: var(--text);
-  position: relative;
-  overflow: hidden;
-}
-
-.gallery-card::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(120deg, transparent 0%, rgba(255,255,255,0.22) 50%, transparent 100%);
-  transform: translateX(-120%);
-  animation: shimmer 3.2s ease-in-out infinite;
-  pointer-events: none;
-}
-
-.gallery-dot {
-  width: 18px;
-  height: 18px;
-  border-radius: 999px;
-  background: linear-gradient(135deg, var(--brand), var(--brand-2));
-  box-shadow: 0 0 0 6px rgba(0, 183, 195, 0.10);
 }
 
 [hidden] {
@@ -1421,8 +1387,7 @@ textarea {
     grid-template-columns: 1fr;
   }
 
-  .success-metrics,
-  .success-gallery {
+  .success-metrics {
     grid-template-columns: 1fr 1fr;
   }
 }
@@ -1455,7 +1420,6 @@ textarea {
   }
 
   .success-metrics,
-  .success-gallery,
   .error-summary-grid {
     grid-template-columns: 1fr;
   }
