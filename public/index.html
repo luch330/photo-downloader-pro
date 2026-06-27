@@ -3,7 +3,16 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Photo downloader</title>
+  <meta name="color-scheme" content="light dark" />
+  <meta name="theme-color" content="#dcecff" />
+  <title>PD Merchant Tools</title>
+
+  <link
+    rel="icon"
+    type="image/svg+xml"
+    href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0%25' stop-color='%2300b7c3'/%3E%3Cstop offset='100%25' stop-color='%232f80ff'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' rx='20' fill='url(%23g)'/%3E%3Ctext x='32' y='39' text-anchor='middle' font-family='Inter,Arial,sans-serif' font-size='20' font-weight='800' fill='white'%3EPD%3C/text%3E%3C/svg%3E"
+  />
+
   <link rel="stylesheet" href="/styles.css" />
   <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
 </head>
@@ -11,9 +20,9 @@
   <div class="app-shell">
     <header class="topbar">
       <div class="brand-wrap">
-        <div class="brand-mark" aria-hidden="true"></div>
+        <div class="brand-mark" aria-hidden="true">PD</div>
         <div>
-          <div class="brand-name">Wolt</div>
+          <div class="brand-name">PD</div>
           <div class="brand-sub">Merchant tools</div>
         </div>
       </div>
@@ -27,18 +36,18 @@
 
     <section class="hero">
       <div class="hero-copy-wrap">
-        <div class="eyebrow">Wolt Merchant Tools</div>
+        <div class="eyebrow">Merchant tools</div>
         <h1>Photo Downloader</h1>
         <p class="hero-copy">
-          Import an Excel catalog, download every product image automatically,
-          normalize all supported formats and export everything into a single ZIP archive.
+          Import an Excel catalog, fetch the product images automatically, normalize supported formats,
+          and export a single ZIP archive.
         </p>
 
         <div class="hero-pills">
-          <div class="hero-pill">Fast</div>
-          <div class="hero-pill">Automatic</div>
+          <div class="hero-pill">Batch-ready</div>
           <div class="hero-pill">Multi-format</div>
-          <div class="hero-pill">Reliable</div>
+          <div class="hero-pill">ZIP export</div>
+          <div class="hero-pill">Fast</div>
         </div>
       </div>
     </section>
@@ -162,7 +171,7 @@
         <a id="downloadBtn" class="btn btn-primary download-btn" href="#" style="display:none;">Download ZIP</a>
 
         <div class="side-note">
-          Internal tool styling: clean, fast, and low-friction.
+          Built for high-volume merchant catalogs.
         </div>
       </aside>
     </main>
@@ -173,7 +182,7 @@
       <div class="modal-head">
         <div>
           <div class="eyebrow">Settings</div>
-          <h2 id="settingsTitle">Download modes & troubleshooting</h2>
+          <h2 id="settingsTitle">Processing modes & controls</h2>
           <p class="modal-copy">Choose a preset or customize the values below. Manual edits switch the mode to Custom automatically.</p>
         </div>
         <button id="closeSettingsBtn" class="icon-btn" type="button" aria-label="Close settings">×</button>
