@@ -18,6 +18,9 @@ const {
   uniqueName,
 } = require('./src/utils');
 
+const APP_NAME = 'PicCatch';
+const SERVICE_NAME = 'piccatch';
+
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
 
@@ -54,8 +57,27 @@ app.use('/api', (_req, res, next) => {
 app.get('/health', (_req, res) => {
   res.json({
     ok: true,
-    service: 'photo-downloader-pro',
+    service: SERVICE_NAME,
+    name: APP_NAME,
+    version: process.env.npm_package_version || '4.0.0',
     time: new Date().toISOString(),
+    runtime: getRuntimeInfo(),
+  });
+});
+
+app.get('/api/info', (_req, res) => {
+  res.json({
+    ok: true,
+    service: SERVICE_NAME,
+    name: APP_NAME,
+    version: process.env.npm_package_version || '4.0.0',
+    runtime: getRuntimeInfo(),
+    jobs: {
+      total: jobs.size,
+      active: Array.from(jobs.values()).filter((job) => job.status === 'processing' || job.status === 'queued').length,
+      done: Array.from(jobs.values()).filter((job) => job.status === 'done').length,
+      error: Array.from(jobs.values()).filter((job) => job.status === 'error').length,
+    },
   });
 });
 
@@ -177,12 +199,19 @@ app.use((err, _req, res, _next) => {
 });
 
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Photo downloader running on port ${PORT}`);
+  console.log(`
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🚀 ${APP_NAME} started successfully
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Port: ${PORT}
+Mode: ${process.env.NODE_ENV || 'development'}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+`);
 });
 
 async function createJob({ fileName, rows, referer, settings }) {
   const id = randomId();
-  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'photo-downloader-'));
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'piccatch-'));
 
   const job = {
     id,
@@ -335,7 +364,7 @@ async function processJob(jobId) {
     failedRows: [],
   });
 
-  reportLines.push('Photo downloader report');
+  reportLines.push(`${APP_NAME} Processing Report`);
   reportLines.push(`Source file: ${job.fileName}`);
   reportLines.push(`Generated: ${new Date().toLocaleString()}`);
   reportLines.push(`Rows (excluding header): ${dataRows.length}`);
@@ -370,7 +399,7 @@ async function processJob(jobId) {
   await Promise.all(workers);
 
   reportLines.push('');
-  reportLines.push('Summary');
+  reportLines.push('Processing Summary');
   reportLines.push(`Success: ${ready}`);
   reportLines.push(`Failed: ${failed}`);
   reportLines.push(`Total rows: ${dataRows.length}`);
@@ -593,4 +622,20 @@ function randomId() {
   } catch {
     return `${Date.now()}_${Math.random().toString(16).slice(2)}`;
   }
+}
+
+function getRuntimeInfo() {
+  const mem = process.memoryUsage();
+  return {
+    node: process.version,
+    platform: process.platform,
+    arch: process.arch,
+    uptimeSec: Math.round(process.uptime()),
+    memory: {
+      rss: mem.rss,
+      heapTotal: mem.heapTotal,
+      heapUsed: mem.heapUsed,
+      external: mem.external,
+    },
+  };
 }
