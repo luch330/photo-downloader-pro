@@ -46,8 +46,8 @@ const successErrors = document.getElementById('successErrors');
 const successZipSize = document.getElementById('successZipSize');
 const successFinish = document.getElementById('successFinish');
 
-const SETTINGS_KEY = 'photo-downloader-settings';
-const THEME_KEY = 'photo-downloader-theme';
+const SETTINGS_KEY = 'piccatch-settings';
+const THEME_KEY = 'piccatch-theme';
 
 const MODE_PRESETS = {
   fast: {
@@ -75,7 +75,7 @@ const MODE_PRESETS = {
 
 const TIMELINE_STEPS = [
   { key: 'upload', label: 'Upload', detail: 'Pick an Excel file' },
-  { key: 'read', label: 'Read Excel', detail: 'Parse rows' },
+  { key: 'read', label: 'Read Excel', detail: 'Parse workbook' },
   { key: 'detect', label: 'Auto-detect', detail: 'Map columns' },
   { key: 'download', label: 'Download', detail: 'Fetch images' },
   { key: 'normalize', label: 'Normalize', detail: 'Process formats' },
@@ -100,7 +100,7 @@ let smoothedSpeed = 0;
 let dashboardRefs = {};
 let dashboardReady = false;
 
-injectEnhancementStyles();
+injectStylesEnhancements();
 createFloatingBackground();
 setupDashboardShell();
 
@@ -119,7 +119,6 @@ renderErrorSummary({
 });
 renderTimeline('idle', 'Ready');
 updateDashboardMetrics({
-  fileName: '—',
   rows: 0,
   ready: 0,
   failed: 0,
@@ -128,17 +127,18 @@ updateDashboardMetrics({
   eta: '—',
   progress: 0,
   stage: 'idle',
+  current: '—',
 });
-
-chooseBtn?.addEventListener('click', () => fileInput.click());
-settingsBtn?.addEventListener('click', openSettings);
-themeBtn?.addEventListener('click', toggleTheme);
 
 if (modeBadge) {
   modeBadge.classList.add('mode-badge-static');
   modeBadge.setAttribute('aria-disabled', 'true');
   modeBadge.tabIndex = -1;
 }
+
+chooseBtn?.addEventListener('click', () => fileInput.click());
+settingsBtn?.addEventListener('click', openSettings);
+themeBtn?.addEventListener('click', toggleTheme);
 
 dropzone?.addEventListener('click', (e) => {
   const interactive = e.target.closest('button, input, select, textarea, label, summary, a');
@@ -180,11 +180,7 @@ fileInput?.addEventListener('change', () => {
 dropzone?.addEventListener('drop', (e) => {
   const file = e.dataTransfer.files && e.dataTransfer.files[0];
   if (!file) return;
-  selectedFile = file;
-  fileInput.files = e.dataTransfer.files;
-  fileNameEl.textContent = selectedFile.name;
-  setStatus('File selected. Ready to start.', 'info');
-  runBtn.disabled = false;
+  setSelectedFile(file);
 });
 
 runBtn?.addEventListener('click', startUpload);
@@ -261,11 +257,11 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
-function injectEnhancementStyles() {
-  if (document.getElementById('ui-enhancements')) return;
+function injectStylesEnhancements() {
+  if (document.getElementById('piccatch-ui-enhancements')) return;
 
   const style = document.createElement('style');
-  style.id = 'ui-enhancements';
+  style.id = 'piccatch-ui-enhancements';
   style.textContent = `
     body { overflow-x: hidden; }
     body::after {
@@ -326,7 +322,7 @@ function injectEnhancementStyles() {
       padding: 8px 12px;
       border-radius: 999px;
       border: 1px solid rgba(0, 183, 195, 0.22);
-      background: rgba(255,255,255,.55);
+      background: rgba(255, 255, 255, 0.55);
       color: var(--brand-2);
       font-size: 12px;
       font-weight: 900;
@@ -346,7 +342,7 @@ function injectEnhancementStyles() {
       padding: 14px;
       border: 1px solid var(--line);
       background:
-        linear-gradient(180deg, rgba(255,255,255,0.86), rgba(255,255,255,0.70)),
+        linear-gradient(180deg, rgba(255, 255, 255, 0.86), rgba(255, 255, 255, 0.70)),
         var(--surface-solid);
       box-shadow: var(--shadow-sm);
       overflow: hidden;
@@ -367,10 +363,11 @@ function injectEnhancementStyles() {
     }
     .dash-card-value {
       display: block;
+      font-family: 'Inter Tight', 'Inter', system-ui, sans-serif;
       font-size: 24px;
       line-height: 1.1;
       letter-spacing: -.04em;
-      font-weight: 900;
+      font-weight: 800;
       color: var(--text);
     }
     .dash-card-sub {
@@ -385,7 +382,7 @@ function injectEnhancementStyles() {
       padding: 14px 16px;
       border: 1px solid var(--line);
       background:
-        linear-gradient(180deg, rgba(255,255,255,0.86), rgba(255,255,255,0.70)),
+        linear-gradient(180deg, rgba(255, 255, 255, 0.86), rgba(255, 255, 255, 0.70)),
         var(--surface-solid);
       box-shadow: var(--shadow-sm);
     }
@@ -543,28 +540,26 @@ function setupDashboardShell() {
   if (dashboardReady) return;
 
   const layout = document.querySelector('.layout');
-  const leftPanel = document.querySelector('.panel-left') || document.querySelector('.panel:first-child');
   const rightPanel = document.querySelector('.panel-right') || document.querySelector('.panel:last-child');
 
-  if (!layout || !leftPanel || !rightPanel) return;
-
-  layout.classList.add('dashboard-shell');
-
-  if (leftPanel.parentElement === layout && rightPanel.parentElement === layout) {
-    layout.appendChild(leftPanel);
-    layout.appendChild(rightPanel);
-  }
+  if (!layout || !rightPanel) return;
 
   rightPanel.classList.add('is-dashboard');
 
+  if (rightPanel.querySelector('#dashboardBoard')) {
+    dashboardReady = true;
+    return;
+  }
+
   const board = document.createElement('section');
+  board.id = 'dashboardBoard';
   board.className = 'dashboard-board';
   board.innerHTML = `
     <div class="dashboard-hero">
       <div>
         <div class="eyebrow">Live dashboard</div>
         <h3>Processing telemetry</h3>
-        <p>Live counters, ETA, download speed, and a timeline update as the job runs.</p>
+        <p>Live counters, ETA, speed and the pipeline timeline update while the job runs.</p>
       </div>
       <div class="dashboard-badge" data-dashboard-mode>Balanced</div>
     </div>
@@ -583,7 +578,7 @@ function setupDashboardShell() {
       <div class="dash-card">
         <span class="dash-card-label">Remaining</span>
         <span class="dash-card-value" data-dash="remaining">—</span>
-        <div class="dash-card-sub" data-dash-sub="remaining">Estimated finish time available below</div>
+        <div class="dash-card-sub" data-dash-sub="remaining">Estimated finish time</div>
       </div>
       <div class="dash-card">
         <span class="dash-card-label">Progress</span>
@@ -621,26 +616,46 @@ function setupDashboardShell() {
   renderTimeline('idle', 'Ready');
 }
 
+function setSelectedFile(file) {
+  selectedFile = file;
+  try {
+    const dt = new DataTransfer();
+    dt.items.add(file);
+    fileInput.files = dt.files;
+  } catch {
+    // no-op fallback
+  }
+
+  fileNameEl.textContent = selectedFile.name;
+  setStatus('File selected. Ready to start.', 'info');
+  runBtn.disabled = false;
+}
+
 function openSettings() {
+  if (!settingsModal) return;
   settingsModal.hidden = false;
   document.body.style.overflow = 'hidden';
   setTimeout(() => refererInput?.focus(), 30);
 }
 
 function closeSettings() {
+  if (!settingsModal) return;
   settingsModal.hidden = true;
   document.body.style.overflow = '';
 }
 
 function openSuccess() {
+  if (!successScreen) return;
   successScreen.hidden = false;
   document.body.style.overflow = 'hidden';
 }
 
 function closeSuccess() {
+  if (!successScreen) return;
   successScreen.hidden = true;
   document.body.style.overflow = '';
 }
+
 function toggleTheme() {
   const isDark = !document.body.classList.contains('theme-dark');
   setTheme(isDark);
@@ -976,7 +991,6 @@ function pollStatus() {
         }
 
         updateTimelineFromPhase('done', 'ZIP ready');
-
         openSuccess();
 
         if (!autoDownloaded) {
@@ -1024,7 +1038,6 @@ function renderStatus(data) {
 
   const metrics = computeMetrics(data);
   updateDashboardMetrics({
-    fileName: data.fileName || '—',
     rows: total,
     ready: Number(data.ready || 0),
     failed: Number(data.failed || 0),
@@ -1034,7 +1047,6 @@ function renderStatus(data) {
     progress,
     stage: data.status,
     current: data.current || '—',
-    currentFile: data.current || '—',
   });
 
   if (startedAt && progress > 0 && progress < 100) {
@@ -1364,18 +1376,6 @@ function maxIndex(arr) {
   return bestIndex;
 }
 
-function indexToLetter(index) {
-  const n = Number(index || 0);
-  let result = '';
-  let x = n + 1;
-  while (x > 0) {
-    const rem = (x - 1) % 26;
-    result = String.fromCharCode(65 + rem) + result;
-    x = Math.floor((x - 1) / 26);
-  }
-  return result || 'A';
-}
-
 function updateTimelineFromPhase(phase, currentText) {
   renderTimeline(phase, currentText);
 }
@@ -1451,7 +1451,7 @@ function computeMetrics(data) {
   };
 }
 
-function updateDashboardMetrics({ fileName, rows, ready, failed, speed, avgMs, eta, progress, stage, current }) {
+function updateDashboardMetrics({ ready, failed, speed, avgMs, eta, progress, stage, current }) {
   if (!dashboardReady) return;
 
   setDashValue(dashboardRefs.speed, `${formatNumber(speed, 1)} img/s`);
@@ -1557,7 +1557,6 @@ function setStatus(text, kind) {
 function setProgress(value, label) {
   const v = Math.max(0, Math.min(100, Math.round(value)));
   barEl.style.width = v + '%';
-  barEl.parentElement?.style.setProperty('--progress', `${v}%`);
   progressText.textContent = label || (v + '%');
 }
 
