@@ -100,8 +100,6 @@ let smoothedSpeed = 0;
 let dashboardRefs = {};
 let dashboardReady = false;
 
-injectStylesEnhancements();
-createFloatingBackground();
 setupDashboardShell();
 
 loadTheme();
@@ -257,359 +255,21 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
-function injectStylesEnhancements() {
-  if (document.getElementById('piccatch-ui-enhancements')) return;
-
-  const style = document.createElement('style');
-  style.id = 'piccatch-ui-enhancements';
-  style.textContent = `
-    body { overflow-x: hidden; }
-    body::after {
-      content: "";
-      position: fixed;
-      inset: -20%;
-      pointer-events: none;
-      background:
-        radial-gradient(circle at 18% 20%, rgba(0, 183, 195, 0.14), transparent 0 16%),
-        radial-gradient(circle at 82% 18%, rgba(47, 128, 255, 0.12), transparent 0 14%),
-        radial-gradient(circle at 70% 82%, rgba(124, 58, 237, 0.08), transparent 0 16%);
-      filter: blur(24px);
-      opacity: .8;
-      animation: bgFloat 24s linear infinite;
-      z-index: 0;
-    }
-    .layout {
-      grid-template-columns: 1fr !important;
-      align-items: start !important;
-    }
-    .panel-right {
-      margin-top: 20px;
-    }
-    .panel-right.is-dashboard {
-      padding-top: 10px;
-    }
-    .dashboard-board {
-      display: grid;
-      gap: 14px;
-      margin-bottom: 16px;
-    }
-    .dashboard-hero {
-      display: flex;
-      justify-content: space-between;
-      align-items: flex-start;
-      gap: 12px;
-      border-radius: 22px;
-      padding: 14px 16px;
-      border: 1px solid rgba(148, 163, 184, 0.22);
-      background: linear-gradient(135deg, rgba(0, 183, 195, 0.10), rgba(47, 128, 255, 0.07));
-    }
-    .dashboard-hero h3 {
-      margin: 4px 0 4px;
-      font-size: 18px;
-      line-height: 1.15;
-      letter-spacing: -.04em;
-      font-weight: 900;
-    }
-    .dashboard-hero p {
-      margin: 0;
-      color: var(--text-muted);
-      font-size: 13px;
-      line-height: 1.55;
-      font-weight: 600;
-      max-width: 660px;
-    }
-    .dashboard-badge {
-      padding: 8px 12px;
-      border-radius: 999px;
-      border: 1px solid rgba(0, 183, 195, 0.22);
-      background: rgba(255, 255, 255, 0.55);
-      color: var(--brand-2);
-      font-size: 12px;
-      font-weight: 900;
-      white-space: nowrap;
-      box-shadow: var(--shadow-sm);
-    }
-    body.theme-dark .dashboard-badge {
-      background: rgba(17, 26, 43, 0.72);
-    }
-    .dashboard-metrics {
-      display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
-      gap: 12px;
-    }
-    .dash-card {
-      border-radius: 18px;
-      padding: 14px;
-      border: 1px solid var(--line);
-      background:
-        linear-gradient(180deg, rgba(255, 255, 255, 0.86), rgba(255, 255, 255, 0.70)),
-        var(--surface-solid);
-      box-shadow: var(--shadow-sm);
-      overflow: hidden;
-    }
-    body.theme-dark .dash-card {
-      background:
-        linear-gradient(180deg, rgba(17, 26, 43, 0.98), rgba(17, 26, 43, 0.90)),
-        var(--surface-solid);
-    }
-    .dash-card-label {
-      display: block;
-      margin-bottom: 6px;
-      font-size: 11px;
-      letter-spacing: .08em;
-      text-transform: uppercase;
-      color: var(--text-muted);
-      font-weight: 900;
-    }
-    .dash-card-value {
-      display: block;
-      font-family: 'Inter Tight', 'Inter', system-ui, sans-serif;
-      font-size: 24px;
-      line-height: 1.1;
-      letter-spacing: -.04em;
-      font-weight: 800;
-      color: var(--text);
-    }
-    .dash-card-sub {
-      margin-top: 6px;
-      font-size: 12px;
-      line-height: 1.5;
-      color: var(--text-muted);
-      font-weight: 600;
-    }
-    .timeline-card {
-      border-radius: 22px;
-      padding: 14px 16px;
-      border: 1px solid var(--line);
-      background:
-        linear-gradient(180deg, rgba(255, 255, 255, 0.86), rgba(255, 255, 255, 0.70)),
-        var(--surface-solid);
-      box-shadow: var(--shadow-sm);
-    }
-    body.theme-dark .timeline-card {
-      background:
-        linear-gradient(180deg, rgba(17, 26, 43, 0.98), rgba(17, 26, 43, 0.90)),
-        var(--surface-solid);
-    }
-    .timeline-title {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 10px;
-      margin-bottom: 12px;
-      font-size: 12px;
-      text-transform: uppercase;
-      letter-spacing: .08em;
-      font-weight: 900;
-      color: var(--text-muted);
-    }
-    .timeline {
-      display: grid;
-      gap: 10px;
-    }
-    .timeline-step {
-      display: grid;
-      grid-template-columns: 24px 1fr auto;
-      gap: 10px;
-      align-items: center;
-      border-radius: 16px;
-      padding: 10px 12px;
-      border: 1px solid transparent;
-      background: rgba(148, 163, 184, 0.06);
-    }
-    .timeline-step .dot {
-      width: 14px;
-      height: 14px;
-      border-radius: 999px;
-      background: rgba(148, 163, 184, 0.35);
-      box-shadow: 0 0 0 6px rgba(148, 163, 184, 0.08);
-    }
-    .timeline-step .label {
-      font-size: 13px;
-      font-weight: 800;
-      color: var(--text);
-      letter-spacing: -.01em;
-    }
-    .timeline-step .detail {
-      font-size: 12px;
-      color: var(--text-muted);
-      font-weight: 600;
-    }
-    .timeline-step.is-active {
-      border-color: rgba(0, 183, 195, 0.24);
-      background: linear-gradient(135deg, rgba(0,183,195,.10), rgba(47,128,255,.06));
-    }
-    .timeline-step.is-active .dot {
-      background: linear-gradient(135deg, var(--brand), var(--brand-2));
-      box-shadow: 0 0 0 6px rgba(0, 183, 195, 0.10);
-      animation: pulseDot 1.2s ease-in-out infinite;
-    }
-    .timeline-step.is-done .dot {
-      background: linear-gradient(135deg, #16a34a, #22c55e);
-      box-shadow: 0 0 0 6px rgba(34, 197, 94, 0.10);
-    }
-    .timeline-step.is-done .label {
-      color: var(--text-soft);
-    }
-    .timeline-step.is-error {
-      border-color: rgba(239, 68, 68, 0.22);
-      background: rgba(239, 68, 68, 0.07);
-    }
-    .timeline-step.is-error .dot {
-      background: linear-gradient(135deg, #ef4444, #f97316);
-      box-shadow: 0 0 0 6px rgba(239, 68, 68, 0.12);
-    }
-    .mode-badge-static {
-      cursor: default !important;
-      pointer-events: none !important;
-      user-select: none !important;
-    }
-    .mode-badge-static:hover {
-      transform: none !important;
-      box-shadow: var(--shadow-sm) !important;
-    }
-    body.is-dragging .dropzone {
-      transform: scale(1.01);
-      box-shadow: 0 18px 40px rgba(0, 183, 195, 0.16);
-    }
-    body.is-dragging .dropzone::before {
-      opacity: .7;
-    }
-    .mini-glow {
-      position: fixed;
-      width: 340px;
-      height: 340px;
-      border-radius: 999px;
-      pointer-events: none;
-      filter: blur(24px);
-      opacity: .5;
-      z-index: 0;
-      animation: drift 18s ease-in-out infinite;
-    }
-    .mini-glow.one { left: -110px; top: 12%; background: rgba(0,183,195,.16); }
-    .mini-glow.two { right: -120px; top: 26%; background: rgba(47,128,255,.12); animation-delay: -7s; }
-    .mini-glow.three { left: 24%; bottom: -130px; background: rgba(124,58,237,.10); animation-delay: -12s; }
-    .metric-up {
-      animation: metricPop 260ms ease;
-    }
-    .flash {
-      animation: flashBg 500ms ease;
-    }
-    @keyframes bgFloat {
-      0% { transform: translate3d(0,0,0) scale(1); }
-      50% { transform: translate3d(12px,-18px,0) scale(1.02); }
-      100% { transform: translate3d(0,0,0) scale(1); }
-    }
-    @keyframes drift {
-      0%,100% { transform: translateY(0) translateX(0); }
-      50% { transform: translateY(-18px) translateX(16px); }
-    }
-    @keyframes pulseDot {
-      0%,100% { transform: scale(1); }
-      50% { transform: scale(1.12); }
-    }
-    @keyframes metricPop {
-      0% { transform: translateY(2px) scale(.98); opacity: .6; }
-      100% { transform: translateY(0) scale(1); opacity: 1; }
-    }
-    @keyframes flashBg {
-      0% { box-shadow: 0 0 0 0 rgba(0,183,195,.0); }
-      40% { box-shadow: 0 0 0 8px rgba(0,183,195,.10); }
-      100% { box-shadow: 0 0 0 0 rgba(0,183,195,.0); }
-    }
-    @media (max-width: 1100px) {
-      .dashboard-metrics { grid-template-columns: repeat(2, minmax(0,1fr)); }
-    }
-    @media (max-width: 720px) {
-      .dashboard-metrics { grid-template-columns: 1fr; }
-    }
-  `;
-  document.head.appendChild(style);
-}
-
-function createFloatingBackground() {
-  ['one', 'two', 'three'].forEach((cls) => {
-    if (document.querySelector(`.mini-glow.${cls}`)) return;
-    const el = document.createElement('div');
-    el.className = `mini-glow ${cls}`;
-    document.body.appendChild(el);
-  });
-}
-
 function setupDashboardShell() {
   if (dashboardReady) return;
 
-  const layout = document.querySelector('.layout');
-  const rightPanel = document.querySelector('.panel-right') || document.querySelector('.panel:last-child');
-
-  if (!layout || !rightPanel) return;
-
-  rightPanel.classList.add('is-dashboard');
-
-  if (rightPanel.querySelector('#dashboardBoard')) {
-    dashboardReady = true;
-    return;
-  }
-
-  const board = document.createElement('section');
-  board.id = 'dashboardBoard';
-  board.className = 'dashboard-board';
-  board.innerHTML = `
-    <div class="dashboard-hero">
-      <div>
-        <div class="eyebrow">Live dashboard</div>
-        <h3>Processing telemetry</h3>
-        <p>Live counters, ETA, speed and the pipeline timeline update while the job runs.</p>
-      </div>
-      <div class="dashboard-badge" data-dashboard-mode>Balanced</div>
-    </div>
-
-    <div class="dashboard-metrics">
-      <div class="dash-card">
-        <span class="dash-card-label">Images / sec</span>
-        <span class="dash-card-value" data-dash="speed">0.0</span>
-        <div class="dash-card-sub" data-dash-sub="speed">Waiting for job start</div>
-      </div>
-      <div class="dash-card">
-        <span class="dash-card-label">Average latency</span>
-        <span class="dash-card-value" data-dash="avg">0 ms</span>
-        <div class="dash-card-sub" data-dash-sub="avg">Per processed image</div>
-      </div>
-      <div class="dash-card">
-        <span class="dash-card-label">Remaining</span>
-        <span class="dash-card-value" data-dash="remaining">—</span>
-        <div class="dash-card-sub" data-dash-sub="remaining">Estimated finish time</div>
-      </div>
-      <div class="dash-card">
-        <span class="dash-card-label">Progress</span>
-        <span class="dash-card-value" data-dash="progress">0%</span>
-        <div class="dash-card-sub" data-dash-sub="progress">Pipeline progress</div>
-      </div>
-    </div>
-
-    <div class="timeline-card">
-      <div class="timeline-title">
-        <span>Processing timeline</span>
-        <span class="overview-badge">Realtime</span>
-      </div>
-      <div class="timeline" data-timeline></div>
-    </div>
-  `;
-
-  rightPanel.insertBefore(board, rightPanel.firstChild);
-
   dashboardRefs = {
-    root: board,
-    mode: board.querySelector('[data-dashboard-mode]'),
-    speed: board.querySelector('[data-dash="speed"]'),
-    avg: board.querySelector('[data-dash="avg"]'),
-    remaining: board.querySelector('[data-dash="remaining"]'),
-    progress: board.querySelector('[data-dash="progress"]'),
-    speedSub: board.querySelector('[data-dash-sub="speed"]'),
-    avgSub: board.querySelector('[data-dash-sub="avg"]'),
-    remainingSub: board.querySelector('[data-dash-sub="remaining"]'),
-    progressSub: board.querySelector('[data-dash-sub="progress"]'),
-    timeline: board.querySelector('[data-timeline]'),
+    root: document.querySelector('.panel-side'),
+    mode: modeBadge,
+    speed: document.querySelector('[data-dash="speed"]'),
+    avg: document.querySelector('[data-dash="avg"]'),
+    remaining: document.querySelector('[data-dash="remaining"]'),
+    progress: document.querySelector('[data-dash="progress"]'),
+    speedSub: document.querySelector('[data-dash-sub="speed"]'),
+    avgSub: document.querySelector('[data-dash-sub="avg"]'),
+    remainingSub: document.querySelector('[data-dash-sub="remaining"]'),
+    progressSub: document.querySelector('[data-dash-sub="progress"]'),
+    timeline: document.querySelector('[data-timeline]'),
   };
 
   dashboardReady = true;
@@ -629,6 +289,7 @@ function setSelectedFile(file) {
   fileNameEl.textContent = selectedFile.name;
   setStatus('File selected. Ready to start.', 'info');
   runBtn.disabled = false;
+  runBtn.textContent = 'Create ZIP';
 }
 
 function openSettings() {
@@ -666,6 +327,7 @@ function setTheme(isDark) {
   document.body.classList.toggle('theme-dark', isDark);
   if (themeBtn) {
     themeBtn.textContent = isDark ? '☀ Light mode' : '🌙 Dark mode';
+    themeBtn.setAttribute('aria-label', isDark ? 'Switch to light mode' : 'Switch to dark mode');
   }
 }
 
@@ -921,7 +583,7 @@ async function startUpload() {
   currentItemEl.textContent = '—';
   retryFailedBtn.disabled = true;
   successRetryBtn.style.display = 'none';
-  runBtn.disabled = true;
+  setProcessingState(true, 'Processing...');
 
   updateTimelineFromPhase('upload', 'Uploading workbook...');
   saveCurrentSettings();
@@ -945,7 +607,7 @@ async function startUpload() {
       body: JSON.stringify(payload),
     });
 
-    const data = await res.json();
+    const data = await readApiJson(res, '/api/start');
     if (!res.ok || !data.ok) throw new Error(data.message || 'Upload failed');
 
     jobId = data.jobId;
@@ -954,15 +616,16 @@ async function startUpload() {
   } catch (err) {
     setStatus('Upload error: ' + err.message, 'error');
     setProgress(0, '0%');
-    runBtn.disabled = false;
+    setProcessingState(false);
   }
 }
 
 function pollStatus() {
   if (!jobId) return;
 
-  fetch('/api/status/' + jobId, { cache: 'no-store' })
-    .then((r) => r.json())
+  const statusEndpoint = '/api/status/' + jobId;
+  fetch(statusEndpoint, { cache: 'no-store' })
+    .then((r) => readApiJson(r, statusEndpoint))
     .then((data) => {
       if (!data.ok) throw new Error(data.message || 'Status error');
       renderStatus(data);
@@ -998,7 +661,7 @@ function pollStatus() {
           successDownloadBtn.click();
         }
 
-        runBtn.disabled = false;
+        setProcessingState(false);
         clearTimeout(pollTimer);
         return;
       }
@@ -1007,7 +670,7 @@ function pollStatus() {
         setStatus(data.error || 'Processing failed.', 'error');
         setProgress(0, '0%');
         updateTimelineFromPhase('error', data.error || 'Processing failed');
-        runBtn.disabled = false;
+        setProcessingState(false);
         clearTimeout(pollTimer);
         return;
       }
@@ -1017,9 +680,22 @@ function pollStatus() {
     .catch((err) => {
       setStatus('Status error: ' + err.message, 'error');
       updateTimelineFromPhase('error', err.message || 'Status error');
-      runBtn.disabled = false;
+      setProcessingState(false);
       clearTimeout(pollTimer);
     });
+}
+
+async function readApiJson(response, endpoint) {
+  const text = await response.text();
+  if (!text.trim()) {
+    throw new Error(`${endpoint} returned an empty response (${response.status})`);
+  }
+
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error(`${endpoint} returned invalid JSON (${response.status}): ${text.slice(0, 160)}`);
+  }
 }
 
 function renderStatus(data) {
@@ -1295,6 +971,19 @@ function detectColumnMapping(raw) {
   let urlIndex = maxIndex(urlScores);
 
   if (width > 1 && nameIndex === urlIndex) {
+    const alternateNameIndex = maxIndexExcept(nameScores, urlIndex);
+    const alternateUrlIndex = maxIndexExcept(urlScores, nameIndex);
+    const nameConfidenceGap = nameScores[nameIndex] - nameScores[alternateNameIndex];
+    const urlConfidenceGap = urlScores[urlIndex] - urlScores[alternateUrlIndex];
+
+    if (urlConfidenceGap >= nameConfidenceGap) {
+      nameIndex = alternateNameIndex;
+    } else {
+      urlIndex = alternateUrlIndex;
+    }
+  }
+
+  if (width > 1 && nameIndex === urlIndex) {
     urlIndex = nameIndex === 0 ? 1 : 0;
   }
 
@@ -1334,7 +1023,7 @@ function scoreUrlCol(rows, headers, col, aliases) {
     const value = String(row?.[col] || '').trim();
     if (!value) return;
     if (looksLikeUrl(value)) score += 3;
-    if (/\.(jpg|jpeg|png|webp|gif|bmp|tiff|svg)(\?|#|$)/i.test(value)) score += 2;
+    if (/\.(jpg|jpeg|png|webp|gif|bmp|tiff?|svg|avif|heic|heif|ico)(\?|#|$)/i.test(value)) score += 2;
   });
 
   return score;
@@ -1361,7 +1050,7 @@ function normalizeRows(raw, mapping) {
 
 function looksLikeUrl(value) {
   const text = String(value || '').trim().toLowerCase();
-  return /^https?:\/\//.test(text) || text.includes('www.') || /\.(jpg|jpeg|png|webp|gif|bmp|tiff|svg)(\?|#|$)/.test(text);
+  return /^https?:\/\//.test(text) || text.includes('www.') || /\.(jpg|jpeg|png|webp|gif|bmp|tiff?|svg|avif|heic|heif|ico)(\?|#|$)/.test(text);
 }
 
 function maxIndex(arr) {
@@ -1373,6 +1062,23 @@ function maxIndex(arr) {
       bestIndex = index;
     }
   });
+  return bestIndex;
+}
+
+function maxIndexExcept(arr, excludedIndex) {
+  if (!Array.isArray(arr) || arr.length <= 1) return maxIndex(arr || []);
+
+  let bestIndex = excludedIndex === 0 ? 1 : 0;
+  let bestValue = Number.NEGATIVE_INFINITY;
+
+  arr.forEach((value, index) => {
+    if (index === excludedIndex) return;
+    if (value > bestValue) {
+      bestValue = value;
+      bestIndex = index;
+    }
+  });
+
   return bestIndex;
 }
 
@@ -1399,12 +1105,12 @@ function renderTimeline(phase, currentText) {
 
   const phaseOrder = {
     idle: 0,
-    upload: 1,
-    read: 2,
-    detect: 3,
-    download: 4,
-    normalize: 5,
-    zip: 6,
+    upload: 0,
+    read: 1,
+    detect: 2,
+    download: 3,
+    normalize: 4,
+    zip: 5,
     done: 7,
     error: -1,
   };
@@ -1571,7 +1277,17 @@ function setStatus(text, kind) {
 function setProgress(value, label) {
   const v = Math.max(0, Math.min(100, Math.round(value)));
   barEl.style.width = v + '%';
+  barEl.parentElement?.setAttribute('aria-valuenow', String(v));
   progressText.textContent = label || (v + '%');
+}
+
+function setProcessingState(isProcessing, label = 'Create ZIP') {
+  document.body.classList.toggle('is-processing', Boolean(isProcessing));
+  dropzone?.setAttribute('aria-busy', isProcessing ? 'true' : 'false');
+  if (runBtn) {
+    runBtn.disabled = Boolean(isProcessing) || !selectedFile || !parsedRows.length;
+    runBtn.textContent = isProcessing ? label : 'Create ZIP';
+  }
 }
 
 function escapeHtml(str) {
