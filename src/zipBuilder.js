@@ -7,20 +7,43 @@ async function buildZip({ zipPath, entries = [], reportText = '', failedCsv = ''
   await fsp.mkdir(path.dirname(zipPath), { recursive: true });
 
   return new Promise((resolve, reject) => {
+    let settled = false;
+    let entryCount = 0;
     const output = fs.createWriteStream(zipPath);
     const archive = archiver('zip', {
-      zlib: { level: 9 },
+      zlib: { level: 6 },
     });
 
-    output.on('close', resolve);
-    output.on('error', reject);
+    const fail = (err) => {
+      if (settled) return;
+      settled = true;
+      try {
+        archive.destroy();
+      } catch {
+        // ignore destroy races
+      }
+      reject(err);
+    };
+
+    output.on('close', () => {
+      if (settled) return;
+      settled = true;
+      resolve({
+        bytes: archive.pointer(),
+        entries: entryCount,
+      });
+    });
+    output.on('error', fail);
     archive.on('warning', (err) => {
       if (err.code === 'ENOENT') {
         return;
       }
-      reject(err);
+      fail(err);
     });
-    archive.on('error', reject);
+    archive.on('error', fail);
+    archive.on('entry', () => {
+      entryCount += 1;
+    });
 
     archive.pipe(output);
 
@@ -38,7 +61,7 @@ async function buildZip({ zipPath, entries = [], reportText = '', failedCsv = ''
       archive.append(failedCsv, { name: 'failed_rows.csv' });
     }
 
-    archive.finalize().catch(reject);
+    archive.finalize().catch(fail);
   });
 }
 
