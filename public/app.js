@@ -326,7 +326,7 @@ function toggleTheme() {
 function setTheme(isDark) {
   document.body.classList.toggle('theme-dark', isDark);
   if (themeBtn) {
-    themeBtn.textContent = isDark ? '☀ Light mode' : '🌙 Dark mode';
+    themeBtn.textContent = isDark ? 'Light mode' : 'Dark mode';
     themeBtn.setAttribute('aria-label', isDark ? 'Switch to light mode' : 'Switch to dark mode');
   }
 }
@@ -705,7 +705,8 @@ function renderStatus(data) {
   animateCount(rowsCountEl, Number(data.total ?? 0));
   animateCount(okCountEl, Number(data.ready ?? 0));
   animateCount(errCountEl, Number(data.failed ?? 0));
-  currentItemEl.textContent = data.current || '—';
+  const currentLabel = data.status === 'done' ? 'Complete' : (data.current || '—');
+  currentItemEl.textContent = currentLabel;
 
   const progress = Number(data.progress || 0);
   const done = Number(data.done || 0);
@@ -722,7 +723,6 @@ function renderStatus(data) {
     eta: metrics.etaText,
     progress,
     stage: data.status,
-    current: data.current || '—',
   });
 
   if (startedAt && progress > 0 && progress < 100) {
@@ -1158,7 +1158,8 @@ function computeMetrics(data) {
     smoothedSpeed = smoothedSpeed ? (smoothedSpeed * 0.68 + instantSpeed * 0.32) : instantSpeed;
   }
 
-  const speed = Number.isFinite(smoothedSpeed) ? smoothedSpeed : 0;
+  const averageSpeed = done > 0 ? done / (elapsedMs / 1000) : 0;
+  const speed = Number.isFinite(smoothedSpeed) && smoothedSpeed > 0 ? smoothedSpeed : averageSpeed;
   const avgMs = done > 0 ? elapsedMs / done : 0;
   const remainingSec = speed > 0 ? Math.max(0, (total - done) / speed) : 0;
   const etaTextValue = progress >= 100 ? 'Done' : remainingSec > 0 ? formatDuration(remainingSec) : '—';
@@ -1171,11 +1172,11 @@ function computeMetrics(data) {
   };
 }
 
-function updateDashboardMetrics({ ready, failed, speed, avgMs, eta, progress, stage, current }) {
+function updateDashboardMetrics({ ready, failed, speed, avgMs, eta, progress, stage }) {
   if (!dashboardReady) return;
 
   setDashValue(dashboardRefs.speed, `${formatNumber(speed, 1)} img/s`);
-  setDashSub(dashboardRefs.speedSub, current && stage !== 'done' ? `Now: ${current}` : 'Live throughput');
+  setDashSub(dashboardRefs.speedSub, stage === 'done' ? 'Final throughput' : 'Live throughput');
 
   setDashValue(dashboardRefs.avg, avgMs ? `${Math.round(avgMs)} ms/img` : '—');
   setDashSub(dashboardRefs.avgSub, 'Average per processed row');
