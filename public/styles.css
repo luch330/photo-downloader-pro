@@ -478,6 +478,14 @@ body.theme-dark .dropzone {
   box-shadow: 0 18px 34px rgba(15, 23, 42, 0.10);
 }
 
+body.is-processing .dropzone {
+  cursor: progress;
+  border-color: rgba(0, 183, 195, 0.42);
+  background:
+    linear-gradient(180deg, rgba(0, 183, 195, 0.06), rgba(47, 128, 255, 0.04)),
+    var(--surface-solid);
+}
+
 .dropzone.dragover {
   transform: translateY(-2px) scale(1.004);
   border-color: rgba(0, 183, 195, 0.92);
@@ -485,6 +493,15 @@ body.theme-dark .dropzone {
   background:
     linear-gradient(180deg, rgba(0, 183, 195, 0.08), rgba(47, 128, 255, 0.05)),
     var(--surface-solid);
+}
+
+body.is-dragging .dropzone {
+  transform: scale(1.01);
+  box-shadow: 0 18px 40px rgba(0, 183, 195, 0.16);
+}
+
+body.is-dragging .dropzone::before {
+  opacity: .7;
 }
 
 .drop-icon {
@@ -915,6 +932,7 @@ body.theme-dark .dash-card {
   letter-spacing: -.04em;
   font-weight: 800;
   color: var(--text);
+  overflow-wrap: anywhere;
 }
 
 .dash-card-sub {
@@ -923,6 +941,14 @@ body.theme-dark .dash-card {
   line-height: 1.5;
   color: var(--text-muted);
   font-weight: 600;
+}
+
+.metric-up {
+  animation: metricPop 260ms ease;
+}
+
+.flash {
+  animation: flashBg 500ms ease;
 }
 
 .dashboard-mini-grid {
@@ -970,7 +996,7 @@ body.theme-dark .dash-card {
 
 .timeline-step {
   display: grid;
-  grid-template-columns: 24px 1fr auto;
+  grid-template-columns: 24px minmax(0, 1fr) minmax(0, auto);
   gap: 10px;
   align-items: center;
   border-radius: 16px;
@@ -998,6 +1024,7 @@ body.theme-dark .dash-card {
   font-size: 12px;
   color: var(--text-muted);
   font-weight: 600;
+  overflow-wrap: anywhere;
 }
 
 .timeline-step.is-active {
@@ -1511,6 +1538,17 @@ textarea {
 @keyframes pulseDot {
   0%, 100% { transform: scale(1); }
   50% { transform: scale(1.12); }
+}
+
+@keyframes metricPop {
+  0% { transform: translateY(2px) scale(.98); opacity: .6; }
+  100% { transform: translateY(0) scale(1); opacity: 1; }
+}
+
+@keyframes flashBg {
+  0% { box-shadow: 0 0 0 0 rgba(0, 183, 195, 0); }
+  40% { box-shadow: 0 0 0 8px rgba(0, 183, 195, 0.10); }
+  100% { box-shadow: 0 0 0 0 rgba(0, 183, 195, 0); }
 }
 
 @media (max-width: 1180px) {
