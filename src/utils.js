@@ -97,3 +97,52 @@ function detectExtension(buffer, contentType, sourceUrl) {
     const sample = buffer.toString('utf8', 0, Math.min(buffer.length, 512)).toLowerCase();
     if (sample.includes('<svg')) return 'svg';
   }
+
+  return extFromUrl || null;
+}
+
+function extFromSource(url) {
+  try {
+    const clean = url.split('?')[0].split('#')[0];
+    const ext = path.extname(clean).replace('.', '').toLowerCase();
+    if (!ext) return null;
+
+    if (ext === 'jpeg') return 'jpg';
+    if (ext === 'tif') return 'tiff';
+    if (['jpg', 'png', 'gif', 'webp', 'bmp', 'svg', 'tiff', 'avif', 'heic', 'heif', 'ico'].includes(ext)) {
+      return ext;
+    }
+  } catch {
+    // ignore
+  }
+
+  return null;
+}
+
+function uniqueName(base, ext, usedNames) {
+  const cleanBase = sanitizeFileName(base) || 'image';
+  const normalizedExt = String(ext || '').replace(/^\./, '').toLowerCase() || 'jpg';
+  const key = `${cleanBase}.${normalizedExt}`;
+
+  if (!usedNames[key]) {
+    usedNames[key] = 1;
+    return key;
+  }
+
+  const n = usedNames[key];
+  usedNames[key] += 1;
+  return `${cleanBase} (${n}).${normalizedExt}`;
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+module.exports = {
+  formatBytes,
+  formatDuration,
+  sanitizeFileName,
+  detectExtension,
+  uniqueName,
+  sleep,
+};

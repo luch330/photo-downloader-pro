@@ -63,12 +63,23 @@ app.use(express.static(path.join(__dirname, 'public'), {
   },
 }));
 
-app.use('/api', (_req, res, next) => {
+app.use('/api', (req, res, next) => {
   res.set({
     'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
     Pragma: 'no-cache',
     Expires: '0',
   });
+
+  if (req.method === 'HEAD') {
+    return res
+      .status(405)
+      .set({
+        Allow: 'GET, POST, OPTIONS',
+        'Content-Type': 'text/plain; charset=utf-8',
+      })
+      .end();
+  }
+
   next();
 });
 

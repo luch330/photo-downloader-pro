@@ -32,8 +32,8 @@
 
       <div class="topbar-actions">
         <div class="chip mode-badge-static" id="modeBadge" aria-disabled="true">Balanced</div>
-        <button id="settingsBtn" class="btn btn-secondary" type="button">⚙ Settings</button>
-        <button id="themeBtn" class="btn btn-secondary" type="button">🌙 Dark mode</button>
+        <button id="settingsBtn" class="btn btn-secondary" type="button" aria-label="Open settings">⚙ Settings</button>
+        <button id="themeBtn" class="btn btn-secondary" type="button" aria-label="Switch to dark mode">🌙 Dark mode</button>
       </div>
     </header>
 
@@ -73,7 +73,7 @@
           </div>
         </div>
 
-        <div id="dropzone" class="dropzone" tabindex="0" role="button" aria-label="Upload Excel file">
+        <div id="dropzone" class="dropzone" tabindex="0" role="button" aria-label="Upload Excel file" aria-busy="false">
           <div class="drop-icon">↓</div>
           <h3>Drop your Excel file here</h3>
           <p>Supports <b>.xlsx</b> and <b>.xls</b>. You can also choose a file manually.</p>
@@ -97,7 +97,9 @@
         </div>
 
         <div class="progress-block">
-          <div class="progress-bar"><div id="bar" class="bar"></div></div>
+          <div class="progress-bar" role="progressbar" aria-label="Processing progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+            <div id="bar" class="bar" aria-hidden="true"></div>
+          </div>
           <div class="progress-meta">
             <span id="progressText">0%</span>
             <span id="etaText">ETA: —</span>
@@ -108,9 +110,9 @@
         <div id="previewWrap" class="preview-wrap">Upload a file to see the first rows.</div>
 
         <div class="section-label">Live log</div>
-        <pre id="logWrap" class="log">Waiting for a file...</pre>
+        <pre id="logWrap" class="log" aria-live="polite">Waiting for a file...</pre>
 
-        <div id="status" class="status">Waiting for a file.</div>
+        <div id="status" class="status" role="status" aria-live="polite">Waiting for a file.</div>
       </section>
 
       <aside class="panel panel-side">
@@ -136,7 +138,7 @@
                 <span class="dash-card-sub">Failed rows</span>
               </div>
               <div class="dash-card">
-                <span class="dash-card-label">Speed</span>
+                <span class="dash-card-label">Current item</span>
                 <span id="currentItem" class="dash-card-value">—</span>
                 <span class="dash-card-sub">Current item</span>
               </div>

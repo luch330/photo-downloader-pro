@@ -5,6 +5,7 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
+    "test": "node --test tests/*.test.js",
     "postinstall": "playwright install chromium"
   },
   "dependencies": {
