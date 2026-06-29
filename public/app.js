@@ -1376,6 +1376,20 @@ function maxIndex(arr) {
   return bestIndex;
 }
 
+function indexToLetter(index) {
+  const n = Number(index || 0);
+  let result = '';
+  let x = n + 1;
+
+  while (x > 0) {
+    const rem = (x - 1) % 26;
+    result = String.fromCharCode(65 + rem) + result;
+    x = Math.floor((x - 1) / 26);
+  }
+
+  return result || 'A';
+}
+
 function updateTimelineFromPhase(phase, currentText) {
   renderTimeline(phase, currentText);
 }
