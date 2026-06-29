@@ -20,6 +20,14 @@ const {
 
 const APP_NAME = 'PicCatch';
 const SERVICE_NAME = 'piccatch';
+const API_BODY_LIMIT = '25mb';
+const MAX_ROWS_PER_JOB = 50000;
+const JOB_RETENTION_MS = clampInt(process.env.JOB_RETENTION_MS, 15 * 60 * 1000, 24 * 60 * 60 * 1000, 6 * 60 * 60 * 1000);
+const JOB_CLEANUP_INTERVAL_MS = 15 * 60 * 1000;
+const LOG_LIMIT = 220;
+const SNAPSHOT_LOG_LIMIT = 140;
+const MAX_LOG_LINE_LENGTH = 2500;
+const MAX_REPORT_ERROR_LENGTH = 1200;
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
@@ -28,22 +36,32 @@ const DEFAULT_SETTINGS = {
   timeoutMs: 45000,
   retries: 2,
   concurrency: 4,
-  browserFallback: false,
+  browserFallback: true,
   maxSide: 3000,
   quality: 92,
 };
 
 const jobs = new Map();
 
+app.set('trust proxy', 1);
 app.disable('x-powered-by');
 app.disable('etag');
 
 app.use(helmet({ contentSecurityPolicy: false }));
 app.use(compression());
-app.use(morgan('dev'));
-app.use(express.json({ limit: '25mb' }));
-app.use(express.urlencoded({ extended: true, limit: '25mb' }));
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(assignRequestId);
+morgan.token('id', (req) => req.id || '-');
+app.use(morgan(':id :method :url :status :res[content-length] - :response-time ms'));
+app.use(express.json({ limit: API_BODY_LIMIT }));
+app.use(express.urlencoded({ extended: true, limit: API_BODY_LIMIT }));
+app.use(express.static(path.join(__dirname, 'public'), {
+  etag: true,
+  lastModified: true,
+  maxAge: process.env.NODE_ENV === 'production' ? '1h' : 0,
+  setHeaders(res) {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+  },
+}));
 
 app.use('/api', (_req, res, next) => {
   res.set({
@@ -104,6 +122,13 @@ app.post('/api/start', async (req, res) => {
       });
     }
 
+    if (rows.length > MAX_ROWS_PER_JOB) {
+      return res.status(413).json({
+        ok: false,
+        message: `This file has too many rows. Please keep each job under ${MAX_ROWS_PER_JOB.toLocaleString()} rows.`,
+      });
+    }
+
     const job = await createJob({
       fileName,
       rows,
@@ -115,7 +140,7 @@ app.post('/api/start', async (req, res) => {
 
     setImmediate(() => {
       processJob(job.id).catch((err) => {
-        const error = String(err?.message || err || 'processing failed');
+        const error = compactError(err, MAX_REPORT_ERROR_LENGTH);
         updateJob(job.id, {
           status: 'error',
           message: 'Processing failed.',
@@ -164,7 +189,19 @@ app.get('/api/download/:jobId', async (req, res) => {
 
   try {
     await fs.access(job.zipPath);
-    return res.download(job.zipPath, job.downloadName || path.basename(job.zipPath));
+    job.lastDownloadedAt = Date.now();
+    res.set({
+      'Content-Type': 'application/zip',
+      'X-Download-Options': 'noopen',
+    });
+    return res.download(job.zipPath, job.downloadName || path.basename(job.zipPath), (err) => {
+      if (err && !res.headersSent) {
+        res.status(500).json({
+          ok: false,
+          message: 'Could not stream ZIP file.',
+        });
+      }
+    });
   } catch {
     return res.status(404).json({
       ok: false,
@@ -191,14 +228,18 @@ app.use((err, _req, res, _next) => {
     });
   }
 
-  console.error(err);
+  console.error({
+    level: 'error',
+    message: 'Unhandled request error',
+    error: String(err?.stack || err?.message || err),
+  });
   res.status(500).json({
     ok: false,
-    message: String(err?.message || err || 'Internal server error'),
+    message: process.env.NODE_ENV === 'production' ? 'Internal server error' : String(err?.message || err || 'Internal server error'),
   });
 });
 
-app.listen(PORT, '0.0.0.0', () => {
+const server = app.listen(PORT, '0.0.0.0', () => {
   console.log(`
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 🚀 ${APP_NAME} started successfully
@@ -209,9 +250,24 @@ Mode: ${process.env.NODE_ENV || 'development'}
 `);
 });
 
+const cleanupTimer = setInterval(() => {
+  cleanupExpiredJobs().catch((err) => {
+    console.error({
+      level: 'error',
+      message: 'Job cleanup failed',
+      error: String(err?.message || err),
+    });
+  });
+}, JOB_CLEANUP_INTERVAL_MS);
+cleanupTimer.unref?.();
+
+process.once('SIGINT', () => shutdown('SIGINT'));
+process.once('SIGTERM', () => shutdown('SIGTERM'));
+
 async function createJob({ fileName, rows, referer, settings }) {
   const id = randomId();
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'piccatch-'));
+  const now = Date.now();
 
   const job = {
     id,
@@ -231,8 +287,10 @@ async function createJob({ fileName, rows, referer, settings }) {
     message: 'Waiting to start.',
     error: null,
 
-    startedAt: Date.now(),
-    updatedAt: Date.now(),
+    startedAt: now,
+    updatedAt: now,
+    expiresAt: now + JOB_RETENTION_MS,
+    lastDownloadedAt: null,
 
     zipPath: null,
     downloadName: null,
@@ -273,7 +331,7 @@ function snapshotJob(id) {
     etaMs: job.etaMs,
 
     preview: job.preview,
-    logs: job.logs.slice(-120),
+    logs: job.logs.slice(-SNAPSHOT_LOG_LIMIT),
     failedRows: job.failedRows,
     errorSummary: job.errorSummary,
 
@@ -291,8 +349,10 @@ function updateJob(id, patch = {}) {
   const job = jobs.get(id);
   if (!job) return null;
 
+  const updatedAt = Date.now();
   Object.assign(job, patch, {
-    updatedAt: Date.now(),
+    updatedAt,
+    expiresAt: updatedAt + JOB_RETENTION_MS,
   });
 
   return job;
@@ -302,12 +362,14 @@ function appendLog(id, message) {
   const job = jobs.get(id);
   if (!job) return null;
 
-  job.logs.push(String(message));
-  if (job.logs.length > 200) {
-    job.logs.splice(0, job.logs.length - 200);
+  const stamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  job.logs.push(`[${stamp}] ${truncateText(message, MAX_LOG_LINE_LENGTH)}`);
+  if (job.logs.length > LOG_LIMIT) {
+    job.logs.splice(0, job.logs.length - LOG_LIMIT);
   }
 
   job.updatedAt = Date.now();
+  job.expiresAt = job.updatedAt + JOB_RETENTION_MS;
   return job;
 }
 
@@ -370,10 +432,12 @@ async function processJob(jobId) {
   reportLines.push(`Rows (excluding header): ${dataRows.length}`);
   reportLines.push(`Referer: ${job.referer || '(none)'}`);
   reportLines.push(
-    `Settings: timeout=${job.settings.timeoutMs}ms, retries=${job.settings.retries}, concurrency=${job.settings.concurrency}, maxSide=${job.settings.maxSide}, quality=${job.settings.quality}`
+    `Settings: timeout=${job.settings.timeoutMs}ms, retries=${job.settings.retries}, concurrency=${job.settings.concurrency}, browserFallback=${job.settings.browserFallback ? 'on' : 'off'}, maxSide=${job.settings.maxSide}, quality=${job.settings.quality}`
   );
   reportLines.push('');
   reportLines.push('Header row skipped automatically.');
+  reportLines.push('OK format: Excel row | Item name | Filename | Method | Final URL');
+  reportLines.push('FAIL format: Excel row | Item name | Error');
   reportLines.push('');
 
   const tasks = dataRows.map((row, index) => ({
@@ -412,7 +476,7 @@ async function processJob(jobId) {
   const failedCsv = createFailedRowsCsv(failedRows);
   const errorSummary = summarizeFailures(failedRows);
 
-  await buildZip({
+  const zipResult = await buildZip({
     zipPath,
     entries: downloaded.sort((a, b) => a.order - b.order),
     reportText,
@@ -440,7 +504,7 @@ async function processJob(jobId) {
     etaMs: 0,
   });
 
-  appendLog(jobId, `ZIP ready: ${zipName} (${formatBytes(zipStats.size)})`);
+  appendLog(jobId, `ZIP ready: ${zipName} (${formatBytes(zipStats.size)}, ${zipResult.entries} files)`);
 
   async function processRowTask(task) {
     const row = task.row || [];
@@ -478,6 +542,7 @@ async function processJob(jobId) {
         referer: job.referer,
         timeoutMs: job.settings.timeoutMs,
         retries: job.settings.retries,
+        browserFallback: job.settings.browserFallback,
         maxSide: job.settings.maxSide,
         quality: job.settings.quality,
       });
@@ -496,15 +561,16 @@ async function processJob(jobId) {
         rowNumber,
         itemName,
         imageUrl,
+        finalUrl: result.finalUrl || imageUrl,
         method: result.method,
       });
 
       ready += 1;
-      reportLines.push(`OK   | ${rowNumber} | ${itemName} | ${filename} | ${result.method}`);
+      reportLines.push(`OK   | ${rowNumber} | ${itemName} | ${filename} | ${result.method} | ${result.finalUrl || imageUrl}`);
       appendLog(jobId, `OK: ${itemName} -> ${filename} (${result.method})`);
     } catch (err) {
       failed += 1;
-      const error = String(err?.message || err || 'download failed');
+      const error = compactError(err, MAX_REPORT_ERROR_LENGTH);
       const record = makeFailedRow(rowNumber, itemName, imageUrl, error, '');
       failedRows.push(record);
       reportLines.push(`FAIL | Row ${rowNumber}: ${itemName} -> ${error}`);
@@ -601,13 +667,80 @@ function createFailedRowsCsv(rows) {
       row.rowNumber,
       row.itemName,
       row.imageUrl,
-      row.error,
+      truncateText(row.error, MAX_REPORT_ERROR_LENGTH),
       row.method || '',
       row.errorType || '',
     ]);
   });
 
   return lines.map((r) => r.map(esc).join(',')).join('\n');
+}
+
+function assignRequestId(req, res, next) {
+  req.id = randomId();
+  res.setHeader('X-Request-Id', req.id);
+  next();
+}
+
+async function cleanupExpiredJobs() {
+  const now = Date.now();
+  const removals = [];
+
+  for (const job of jobs.values()) {
+    if (isActiveJob(job)) continue;
+    if ((job.expiresAt || 0) > now) continue;
+    removals.push(cleanupJob(job, 'expired'));
+  }
+
+  await Promise.allSettled(removals);
+}
+
+async function cleanupJob(job, reason) {
+  if (!job || !job.id) return;
+  jobs.delete(job.id);
+
+  if (job.tempDir) {
+    await fs.rm(job.tempDir, { recursive: true, force: true });
+  }
+
+  console.log({
+    level: 'info',
+    message: 'Cleaned up job artifacts',
+    jobId: job.id,
+    reason,
+  });
+}
+
+function isActiveJob(job) {
+  return job?.status === 'queued' || job?.status === 'processing';
+}
+
+function compactError(err, maxLength = MAX_REPORT_ERROR_LENGTH) {
+  const raw = String(err?.message || err || 'download failed');
+  const lines = raw
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  const important = [];
+  for (const line of lines) {
+    if (
+      important.length < 8 &&
+      (/^(image download failed|HTTP Status|Content-Type|Final URL|Redirect Chain|Retry strategy|Protocol used|Browser used|Last error)/i.test(line) ||
+        important.length === 0)
+    ) {
+      important.push(line);
+    }
+  }
+
+  return truncateText(important.length ? important.join(' | ') : raw, maxLength);
+}
+
+function truncateText(value, maxLength) {
+  const text = String(value ?? '');
+  const limit = Number(maxLength || 0);
+  if (!limit || text.length <= limit) return text;
+  return `${text.slice(0, Math.max(0, limit - 1))}…`;
 }
 
 function clampInt(value, min, max, fallback) {
@@ -638,4 +771,21 @@ function getRuntimeInfo() {
       external: mem.external,
     },
   };
+}
+
+function shutdown(signal) {
+  console.log({
+    level: 'info',
+    message: 'Shutting down',
+    signal,
+  });
+
+  clearInterval(cleanupTimer);
+  server.close(async () => {
+    const removals = Array.from(jobs.values()).map((job) => cleanupJob(job, 'shutdown'));
+    await Promise.allSettled(removals);
+    process.exit(0);
+  });
+
+  setTimeout(() => process.exit(1), 10000).unref();
 }
