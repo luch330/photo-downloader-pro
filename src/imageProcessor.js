@@ -1,8 +1,11 @@
 const { Buffer } = require('buffer');
+const os = require('os');
 
 let sharp = null;
 try {
   sharp = require('sharp');
+  sharp.cache({ memory: 64, files: 0, items: 128 });
+  sharp.concurrency(Math.max(1, Math.min(4, os.cpus().length || 1)));
 } catch {
   sharp = null;
 }
@@ -32,6 +35,8 @@ async function normalizeImage(buffer, options = {}) {
     let pipeline = sharp(input, {
       failOnError: false,
       density,
+      limitInputPixels: 12000 * 12000,
+      sequentialRead: true,
     }).rotate();
 
     pipeline = pipeline.flatten({ background: '#ffffff' });
@@ -49,6 +54,7 @@ async function normalizeImage(buffer, options = {}) {
       .jpeg({
         quality,
         mozjpeg: true,
+        progressive: true,
       })
       .toBuffer();
 
@@ -96,6 +102,8 @@ function guessContentTypeFromBuffer(buffer, contentType, sourceUrl) {
   if (ct.includes('image/avif') || url.endsWith('.avif')) return 'image/avif';
   if (ct.includes('image/heic') || url.endsWith('.heic')) return 'image/heic';
   if (ct.includes('image/heif') || url.endsWith('.heif')) return 'image/heif';
+  if (ct.includes('image/tiff') || ct.includes('image/tif') || url.endsWith('.tiff') || url.endsWith('.tif')) return 'image/tiff';
+  if (ct.includes('image/x-icon') || ct.includes('image/vnd.microsoft.icon') || url.endsWith('.ico')) return 'image/x-icon';
 
   if (buffer && buffer.length) {
     if (buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) return 'image/jpeg';
@@ -105,9 +113,26 @@ function guessContentTypeFromBuffer(buffer, contentType, sourceUrl) {
       if (head === 'GIF87a' || head === 'GIF89a') return 'image/gif';
     }
     if (buffer.length >= 2 && buffer[0] === 0x42 && buffer[1] === 0x4d) return 'image/bmp';
+    if (
+      buffer.length >= 4 &&
+      ((buffer[0] === 0x49 && buffer[1] === 0x49 && buffer[2] === 0x2a && buffer[3] === 0x00) ||
+        (buffer[0] === 0x4d && buffer[1] === 0x4d && buffer[2] === 0x00 && buffer[3] === 0x2a) ||
+        (buffer[0] === 0x49 && buffer[1] === 0x49 && buffer[2] === 0x2b && buffer[3] === 0x00))
+    ) {
+      return 'image/tiff';
+    }
+    if (buffer.length >= 4 && buffer[0] === 0x00 && buffer[1] === 0x00 && buffer[2] === 0x01 && buffer[3] === 0x00) {
+      return 'image/x-icon';
+    }
     if (buffer.length >= 12) {
       const head = buffer.subarray(0, 12).toString('ascii');
       if (head.startsWith('RIFF') && buffer.subarray(8, 12).toString('ascii') === 'WEBP') return 'image/webp';
+      if (buffer.subarray(4, 8).toString('ascii') === 'ftyp') {
+        const brands = buffer.subarray(8, Math.min(buffer.length, 64)).toString('ascii');
+        if (brands.includes('avif') || brands.includes('avis')) return 'image/avif';
+        if (/(heic|heix|hevc|hevx)/.test(brands)) return 'image/heic';
+        if (/(mif1|msf1)/.test(brands)) return 'image/heif';
+      }
     }
     const sample = buffer.toString('utf8', 0, Math.min(buffer.length, 512)).toLowerCase();
     if (sample.includes('<svg')) return 'image/svg+xml';
