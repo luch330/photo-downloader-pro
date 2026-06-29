@@ -83,8 +83,24 @@ app.get('/health', (_req, res) => {
   });
 });
 
+app.get('/api', (_req, res) => {
+  res.json(getApiInfoPayload());
+});
+
+app.all('/api', (_req, res) => {
+  res.status(405).json({
+    ok: false,
+    message: 'Method not allowed.',
+    allowedMethods: ['GET'],
+  });
+});
+
 app.get('/api/info', (_req, res) => {
-  res.json({
+  res.json(getApiInfoPayload());
+});
+
+function getApiInfoPayload() {
+  return {
     ok: true,
     service: SERVICE_NAME,
     name: APP_NAME,
@@ -96,8 +112,8 @@ app.get('/api/info', (_req, res) => {
       done: Array.from(jobs.values()).filter((job) => job.status === 'done').length,
       error: Array.from(jobs.values()).filter((job) => job.status === 'error').length,
     },
-  });
-});
+  };
+}
 
 app.post('/api/start', async (req, res) => {
   try {
@@ -211,7 +227,7 @@ app.get('/api/download/:jobId', async (req, res) => {
 });
 
 app.use((req, res, next) => {
-  if (req.path.startsWith('/api/')) {
+  if (isApiPath(req.path)) {
     return res.status(404).json({
       ok: false,
       message: 'Not found.',
@@ -220,7 +236,11 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use((err, _req, res, _next) => {
+app.use((err, req, res, next) => {
+  if (res.headersSent) {
+    return next(err);
+  }
+
   if (err instanceof SyntaxError && 'body' in err) {
     return res.status(400).json({
       ok: false,
@@ -228,14 +248,32 @@ app.use((err, _req, res, _next) => {
     });
   }
 
+  const isApi = isApiPath(req.path) || isApiPath(req.originalUrl || '');
+  const status = err?.type === 'entity.too.large'
+    ? 413
+    : clampInt(err?.status || err?.statusCode, 400, 599, 500);
+  const message = status === 413
+    ? `Request body is too large. Limit is ${API_BODY_LIMIT}.`
+    : process.env.NODE_ENV === 'production'
+      ? 'Internal server error'
+      : String(err?.message || err || 'Internal server error');
+
   console.error({
     level: 'error',
     message: 'Unhandled request error',
     error: String(err?.stack || err?.message || err),
   });
-  res.status(500).json({
+
+  if (isApi) {
+    return res.status(status).json({
+      ok: false,
+      message,
+    });
+  }
+
+  res.status(status).json({
     ok: false,
-    message: process.env.NODE_ENV === 'production' ? 'Internal server error' : String(err?.message || err || 'Internal server error'),
+    message,
   });
 });
 
@@ -680,6 +718,11 @@ function assignRequestId(req, res, next) {
   req.id = randomId();
   res.setHeader('X-Request-Id', req.id);
   next();
+}
+
+function isApiPath(value) {
+  const pathName = String(value || '').split('?')[0];
+  return pathName === '/api' || pathName.startsWith('/api/');
 }
 
 async function cleanupExpiredJobs() {
