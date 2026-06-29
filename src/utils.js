@@ -62,6 +62,7 @@ function detectExtension(buffer, contentType, sourceUrl) {
   if (ct.includes('image/avif')) return 'avif';
   if (ct.includes('image/heic')) return 'heic';
   if (ct.includes('image/heif')) return 'heif';
+  if (ct.includes('image/x-icon') || ct.includes('image/vnd.microsoft.icon')) return 'ico';
 
   if (buffer && buffer.length) {
     if (buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) return 'jpg';
@@ -71,9 +72,26 @@ function detectExtension(buffer, contentType, sourceUrl) {
       if (head === 'GIF87a' || head === 'GIF89a') return 'gif';
     }
     if (buffer.length >= 2 && buffer[0] === 0x42 && buffer[1] === 0x4d) return 'bmp';
+    if (
+      buffer.length >= 4 &&
+      ((buffer[0] === 0x49 && buffer[1] === 0x49 && buffer[2] === 0x2a && buffer[3] === 0x00) ||
+        (buffer[0] === 0x4d && buffer[1] === 0x4d && buffer[2] === 0x00 && buffer[3] === 0x2a) ||
+        (buffer[0] === 0x49 && buffer[1] === 0x49 && buffer[2] === 0x2b && buffer[3] === 0x00))
+    ) {
+      return 'tiff';
+    }
+    if (buffer.length >= 4 && buffer[0] === 0x00 && buffer[1] === 0x00 && buffer[2] === 0x01 && buffer[3] === 0x00) {
+      return 'ico';
+    }
     if (buffer.length >= 12) {
       const head = buffer.subarray(0, 12).toString('ascii');
       if (head.startsWith('RIFF') && buffer.subarray(8, 12).toString('ascii') === 'WEBP') return 'webp';
+      if (buffer.subarray(4, 8).toString('ascii') === 'ftyp') {
+        const brands = buffer.subarray(8, Math.min(buffer.length, 64)).toString('ascii');
+        if (brands.includes('avif') || brands.includes('avis')) return 'avif';
+        if (/(heic|heix|hevc|hevx)/.test(brands)) return 'heic';
+        if (/(mif1|msf1)/.test(brands)) return 'heif';
+      }
     }
 
     const sample = buffer.toString('utf8', 0, Math.min(buffer.length, 512)).toLowerCase();
@@ -91,7 +109,7 @@ function extFromSource(url) {
 
     if (ext === 'jpeg') return 'jpg';
     if (ext === 'tif') return 'tiff';
-    if (['jpg', 'png', 'gif', 'webp', 'bmp', 'svg', 'tiff', 'avif', 'heic', 'heif'].includes(ext)) {
+    if (['jpg', 'png', 'gif', 'webp', 'bmp', 'svg', 'tiff', 'avif', 'heic', 'heif', 'ico'].includes(ext)) {
       return ext;
     }
   } catch {
