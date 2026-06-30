@@ -4,19 +4,21 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="color-scheme" content="light dark" />
-  <meta name="theme-color" content="#dcecff" />
+  <meta name="theme-color" content="#e7fbff" />
   <title>PicCatch Merchant Tools</title>
 
   <link
     rel="icon"
     type="image/svg+xml"
-    href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0%25' stop-color='%2300b7c3'/%3E%3Cstop offset='100%25' stop-color='%232f80ff'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' rx='20' fill='url(%23g)'/%3E%3Ctext x='21' y='40' text-anchor='middle' font-family='Inter,Arial,sans-serif' font-size='28' font-weight='800' fill='white'%3EP%3C/text%3E%3Ctext x='41' y='39' text-anchor='middle' font-family='Inter,Arial,sans-serif' font-size='16' font-weight='800' fill='white'%3EC%C2%B2%3C/text%3E%3C/svg%3E"
+    href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0%25' stop-color='%2300c2d1'/%3E%3Cstop offset='100%25' stop-color='%232f80ff'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' rx='18' fill='url(%23g)'/%3E%3Ctext x='21' y='40' text-anchor='middle' font-family='Inter,Arial,sans-serif' font-size='28' font-weight='800' fill='white'%3EP%3C/text%3E%3Ctext x='42' y='39' text-anchor='middle' font-family='Inter,Arial,sans-serif' font-size='16' font-weight='800' fill='white'%3EC%C2%B2%3C/text%3E%3C/svg%3E"
   />
 
   <link rel="stylesheet" href="/styles.css" />
   <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
 </head>
 <body>
+  <div class="ambient-grid" aria-hidden="true"></div>
+
   <div class="app-shell">
     <header class="topbar">
       <div class="brand-wrap">
@@ -26,57 +28,64 @@
         </div>
         <div>
           <div class="brand-name">PicCatch</div>
-          <div class="brand-sub">Merchant tools</div>
+          <div class="brand-sub">Merchant image operations</div>
         </div>
       </div>
 
       <div class="topbar-actions">
         <div class="chip mode-badge-static" id="modeBadge" aria-disabled="true">Balanced</div>
-        <button id="settingsBtn" class="btn btn-secondary" type="button" aria-label="Open settings">⚙ Settings</button>
-        <button id="themeBtn" class="btn btn-secondary" type="button" aria-label="Switch to dark mode">🌙 Dark mode</button>
+        <button id="settingsBtn" class="btn btn-secondary btn-compact" type="button" aria-label="Open settings">Settings</button>
+        <button id="themeBtn" class="btn btn-secondary btn-compact" type="button" aria-label="Switch to dark mode">Dark mode</button>
       </div>
     </header>
 
     <section class="hero">
       <div class="hero-copy-wrap">
-        <div class="eyebrow">PicCatch</div>
-        <h1>Batch image pipeline for merchant catalogs</h1>
+        <div class="eyebrow">Merchant media pipeline</div>
+        <h1>Catalog image batches, shipped cleanly.</h1>
         <p class="hero-copy">
-          Upload an Excel catalog, process images automatically, normalize formats, and export everything into a single ZIP archive.
+          Convert messy merchant spreadsheets into normalized image archives with live progress, resilient downloads, and a clear failure trail.
         </p>
-
-        <div class="hero-pills">
-          <div class="hero-pill">Batch-ready</div>
-          <div class="hero-pill">Multi-format</div>
-          <div class="hero-pill">ZIP export</div>
-          <div class="hero-pill">Fast</div>
-        </div>
       </div>
 
-      <div class="hero-watermark" aria-hidden="true">
-        <span>P</span>
-        <span>C<sup>2</sup></span>
+      <div class="hero-panel" aria-hidden="true">
+        <div class="hero-orbit">
+          <span></span>
+          <span></span>
+          <span></span>
+        </div>
+        <div class="hero-stat">
+          <span>Pipeline</span>
+          <strong>Ready</strong>
+        </div>
       </div>
     </section>
 
     <main class="dashboard-layout">
       <section class="panel panel-main">
-        <div class="upload-head">
+        <div class="panel-glow" aria-hidden="true"></div>
+
+        <div class="workflow-head">
           <div>
             <div class="eyebrow">Step 1</div>
             <h2>Upload catalog</h2>
-            <p class="upload-copy">Drag & drop your Excel file here or choose it manually.</p>
+            <p class="upload-copy">Drop an Excel workbook, verify the detected columns, then build the ZIP.</p>
           </div>
           <div class="upload-meta">
             <span class="mini-chip">.xlsx / .xls</span>
-            <span class="mini-chip">Header row skipped</span>
+            <span class="mini-chip">Header skipped</span>
+            <span class="mini-chip">ZIP report</span>
           </div>
         </div>
 
         <div id="dropzone" class="dropzone" tabindex="0" role="button" aria-label="Upload Excel file" aria-busy="false">
-          <div class="drop-icon">↓</div>
-          <h3>Drop your Excel file here</h3>
-          <p>Supports <b>.xlsx</b> and <b>.xls</b>. You can also choose a file manually.</p>
+          <div class="drop-icon" aria-hidden="true">
+            <span></span>
+          </div>
+          <div class="drop-copy">
+            <h3>Drop workbook here</h3>
+            <p>Choose a merchant catalog and PicCatch will map item names and image URLs automatically.</p>
+          </div>
 
           <div class="actions">
             <button id="chooseBtn" class="btn btn-secondary" type="button">Choose file</button>
@@ -86,47 +95,88 @@
           <input id="fileInput" class="file-input" type="file" accept=".xlsx,.xls" />
         </div>
 
-        <div id="columnHint" class="column-hint">
-          Auto-detect will map your columns automatically.
+        <div class="pipeline-strip" aria-label="Processing steps">
+          <span>Upload</span>
+          <span>Detect</span>
+          <span>Download</span>
+          <span>Normalize</span>
+          <span>Export</span>
         </div>
 
-        <div class="pill-row">
-          <span class="pill">1) Header row</span>
-          <span class="pill">2) Item name</span>
-          <span class="pill">3) Image URL</span>
+        <div id="columnHint" class="column-hint">
+          <span class="mini-chip">Auto-detect ready</span>
         </div>
 
         <div class="progress-block">
-          <div class="progress-bar" role="progressbar" aria-label="Processing progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
-            <div id="bar" class="bar" aria-hidden="true"></div>
-          </div>
-          <div class="progress-meta">
+          <div class="progress-topline">
             <span id="progressText">0%</span>
             <span id="etaText">ETA: —</span>
           </div>
+          <div class="progress-bar" role="progressbar" aria-label="Processing progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+            <div id="bar" class="bar" aria-hidden="true"></div>
+          </div>
         </div>
 
-        <div class="section-label">Preview</div>
-        <div id="previewWrap" class="preview-wrap">Upload a file to see the first rows.</div>
+        <div class="work-grid">
+          <section class="workspace-card">
+            <div class="section-head">
+              <div>
+                <span class="section-label">Preview</span>
+                <h3>Detected rows</h3>
+              </div>
+            </div>
+            <div id="previewWrap" class="preview-wrap">Upload a file to see the first rows.</div>
+          </section>
 
-        <div class="section-label">Live log</div>
-        <pre id="logWrap" class="log" aria-live="polite">Waiting for a file...</pre>
+          <section class="workspace-card">
+            <div class="section-head">
+              <div>
+                <span class="section-label">Live log</span>
+                <h3>Run activity</h3>
+              </div>
+            </div>
+            <pre id="logWrap" class="log" aria-live="polite">Waiting for a file...</pre>
+          </section>
+        </div>
 
         <div id="status" class="status" role="status" aria-live="polite">Waiting for a file.</div>
       </section>
 
       <aside class="panel panel-side">
         <div class="dashboard-stack">
-          <div class="dashboard-card dashboard-card-hero">
+          <section class="dashboard-card dashboard-hero-card">
             <div class="dashboard-head">
               <div>
-                <div class="eyebrow">Overview</div>
+                <div class="eyebrow">Command center</div>
                 <h2>Processing dashboard</h2>
               </div>
-              <div class="overview-badge">Live status</div>
+              <div class="overview-badge">Live</div>
             </div>
 
-            <div class="dashboard-metrics">
+            <div class="dashboard-metrics dashboard-metrics-primary">
+              <div class="dash-card dash-card-accent">
+                <span class="dash-card-label">Speed</span>
+                <span class="dash-card-value" data-dash="speed">0.0 img/s</span>
+                <span class="dash-card-sub" data-dash-sub="speed">Live throughput</span>
+              </div>
+              <div class="dash-card">
+                <span class="dash-card-label">Average</span>
+                <span class="dash-card-value" data-dash="avg">—</span>
+                <span class="dash-card-sub" data-dash-sub="avg">Average per row</span>
+              </div>
+              <div class="dash-card">
+                <span class="dash-card-label">ETA</span>
+                <span class="dash-card-value" data-dash="remaining">—</span>
+                <span class="dash-card-sub" data-dash-sub="remaining">Estimated finish</span>
+              </div>
+              <div class="dash-card">
+                <span class="dash-card-label">Progress</span>
+                <span class="dash-card-value" data-dash="progress">0%</span>
+                <span class="dash-card-sub" data-dash-sub="progress">0 ready · 0 errors</span>
+              </div>
+            </div>
+
+            <div class="dashboard-metrics dashboard-metrics-secondary">
               <div class="dash-card">
                 <span class="dash-card-label">Images</span>
                 <span id="okCount" class="dash-card-value">—</span>
@@ -137,10 +187,10 @@
                 <span id="errCount" class="dash-card-value">—</span>
                 <span class="dash-card-sub">Failed rows</span>
               </div>
-              <div class="dash-card">
+              <div class="dash-card dash-card-wide">
                 <span class="dash-card-label">Current item</span>
-                <span id="currentItem" class="dash-card-value">—</span>
-                <span class="dash-card-sub">Current item</span>
+                <span id="currentItem" class="dash-card-value dash-card-value-small">—</span>
+                <span class="dash-card-sub">Separate from speed</span>
               </div>
               <div class="dash-card">
                 <span class="dash-card-label">ZIP size</span>
@@ -159,15 +209,18 @@
                 <span id="rowsCount" class="v">—</span>
               </div>
               <div class="mini-stat">
-                <span class="k">ETA</span>
+                <span class="k">Finish</span>
                 <span id="estimatedFinish" class="v">—</span>
               </div>
             </div>
-          </div>
+          </section>
 
-          <div class="dashboard-card">
+          <section class="dashboard-card timeline-card">
             <div class="timeline-head">
-              <div class="status-card-title">Processing timeline</div>
+              <div>
+                <div class="status-card-title">Processing timeline</div>
+                <p class="side-copy">Each stage updates as the batch moves through the pipeline.</p>
+              </div>
               <div class="overview-badge">Realtime</div>
             </div>
             <div class="timeline" data-timeline>
@@ -179,76 +232,43 @@
                 </div>
                 <div class="detail">Ready</div>
               </div>
-              <div class="timeline-step">
-                <div class="dot"></div>
-                <div>
-                  <div class="label">Read Excel</div>
-                  <div class="detail">Parse workbook</div>
-                </div>
-                <div class="detail"></div>
+            </div>
+          </section>
+
+          <section id="historyCard" class="dashboard-card history-card">
+            <div class="dashboard-head compact-head">
+              <div>
+                <div class="status-card-title">Session history</div>
+                <p id="historyHelp" class="summary-help">Recent processing runs in this server session.</p>
               </div>
-              <div class="timeline-step">
-                <div class="dot"></div>
-                <div>
-                  <div class="label">Auto-detect</div>
-                  <div class="detail">Map columns</div>
-                </div>
-                <div class="detail"></div>
-              </div>
-              <div class="timeline-step">
-                <div class="dot"></div>
-                <div>
-                  <div class="label">Download</div>
-                  <div class="detail">Fetch images</div>
-                </div>
-                <div class="detail"></div>
-              </div>
-              <div class="timeline-step">
-                <div class="dot"></div>
-                <div>
-                  <div class="label">Normalize</div>
-                  <div class="detail">Process formats</div>
-                </div>
-                <div class="detail"></div>
-              </div>
-              <div class="timeline-step">
-                <div class="dot"></div>
-                <div>
-                  <div class="label">Build ZIP</div>
-                  <div class="detail">Package files</div>
-                </div>
-                <div class="detail"></div>
+              <div class="history-toolbar">
+                <span id="historyCount" class="overview-badge">0 runs</span>
+                <button id="refreshHistoryBtn" class="icon-btn icon-btn-small" type="button" aria-label="Refresh history">↻</button>
               </div>
             </div>
-          </div>
-
-          <div class="dashboard-card">
-            <div class="status-card-title">What you get</div>
-            <div class="side-copy">
-              After processing, you will get a ZIP archive with the images and a report file inside.
+            <div id="historyList" class="history-list" aria-live="polite">
+              <div class="history-empty">No processing runs yet.</div>
             </div>
-          </div>
+          </section>
 
-          <div id="errorSummaryCard" class="dashboard-card">
-            <div class="status-card-title">Error summary</div>
+          <section id="errorSummaryCard" class="dashboard-card">
+            <div class="dashboard-head compact-head">
+              <div>
+                <div class="status-card-title">Error summary</div>
+                <p id="errorSummaryHelp" class="summary-help">This will summarize what failed in the latest run.</p>
+              </div>
+            </div>
             <div id="errorSummaryGrid" class="error-summary-grid">
               <div class="summary-empty">No error summary yet.</div>
-            </div>
-            <div id="errorSummaryHelp" class="summary-help">
-              This will summarize what failed in the latest run.
             </div>
 
             <div class="actions actions-left">
               <button id="retryFailedBtn" class="btn btn-secondary" type="button" disabled>Retry failed</button>
               <button id="viewErrorsBtn" class="btn btn-secondary" type="button">View details</button>
             </div>
-          </div>
+          </section>
 
           <a id="downloadBtn" class="btn btn-primary download-btn" href="#" style="display:none;">Download ZIP</a>
-
-          <div class="dashboard-card dashboard-footer-note">
-            Built for high-volume merchant catalogs.
-          </div>
         </div>
       </aside>
     </main>
@@ -259,8 +279,8 @@
       <div class="modal-head">
         <div>
           <div class="eyebrow">Settings</div>
-          <h2 id="settingsTitle">Processing modes & controls</h2>
-          <p class="modal-copy">Choose a preset or customize the values below. Manual edits switch the mode to Custom automatically.</p>
+          <h2 id="settingsTitle">Processing modes</h2>
+          <p class="modal-copy">Choose a preset or tune timeout, retry, and concurrency for the current merchant batch.</p>
         </div>
         <button id="closeSettingsBtn" class="icon-btn" type="button" aria-label="Close settings">×</button>
       </div>
@@ -268,15 +288,15 @@
       <div class="mode-grid">
         <button class="mode-card" type="button" data-mode="fast">
           <span class="mode-title">Fast</span>
-          <span class="mode-desc">Quick, aggressive, fewer retries.</span>
+          <span class="mode-desc">High throughput with fewer retries.</span>
         </button>
         <button class="mode-card active" type="button" data-mode="balanced">
           <span class="mode-title">Balanced</span>
-          <span class="mode-desc">Best default for most cases.</span>
+          <span class="mode-desc">The best default for most catalogs.</span>
         </button>
         <button class="mode-card" type="button" data-mode="safe">
           <span class="mode-title">Safe</span>
-          <span class="mode-desc">Slower, more reliable, more retries.</span>
+          <span class="mode-desc">More patient retries for difficult sites.</span>
         </button>
       </div>
 
@@ -287,13 +307,13 @@
 
       <div class="settings-grid">
         <label>
-          <span>Partner page URL (optional)</span>
+          <span>Partner page URL</span>
           <input id="refererInput" type="url" placeholder="https://partner-site.com/product-page" />
-          <small>If the images are protected, paste the product page URL here. It will be sent as Referer.</small>
+          <small>Optional referer for protected merchant media.</small>
         </label>
 
         <label>
-          <span>Timeout (seconds)</span>
+          <span>Timeout</span>
           <input id="timeoutInput" type="number" min="5" max="180" step="1" value="45" />
         </label>
 
@@ -325,10 +345,10 @@
 
   <div id="successScreen" class="success-overlay" hidden>
     <div class="success-card">
-      <div class="success-icon">✓</div>
+      <div class="success-icon" aria-hidden="true">✓</div>
       <div class="eyebrow">ZIP ready</div>
-      <h2>Finished</h2>
-      <p class="success-copy">The archive is ready. You can download it now or retry only the failed rows if you want.</p>
+      <h2>Batch complete</h2>
+      <p class="success-copy">Your archive is ready, with the image set and processing report packaged together.</p>
 
       <div class="success-metrics">
         <div class="metric-card">
@@ -344,7 +364,7 @@
           <strong id="successZipSize">—</strong>
         </div>
         <div class="metric-card">
-          <span>Finishes around</span>
+          <span>Finished</span>
           <strong id="successFinish">—</strong>
         </div>
       </div>
@@ -353,6 +373,29 @@
         <a id="successDownloadBtn" class="btn btn-primary" href="#">Download ZIP</a>
         <button id="successRetryBtn" class="btn btn-secondary" type="button" style="display:none;">Retry failed</button>
         <button id="closeSuccessBtn" class="btn btn-secondary" type="button">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="reportModal" class="modal-overlay" hidden>
+    <div class="modal-card report-card" role="dialog" aria-modal="true" aria-labelledby="reportTitle">
+      <div class="modal-head">
+        <div>
+          <div class="eyebrow">Processing report</div>
+          <h2 id="reportTitle">Run report</h2>
+          <p id="reportMeta" class="modal-copy">Report details will appear here.</p>
+        </div>
+        <button id="closeReportBtn" class="icon-btn" type="button" aria-label="Close report">×</button>
+      </div>
+
+      <pre id="reportBody" class="report-body">Loading report...</pre>
+
+      <div class="modal-footer">
+        <div class="shortcut-hint">Reports are stored in memory for this server session.</div>
+        <div class="actions">
+          <a id="reportDownloadBtn" class="btn btn-primary" href="#" style="display:none;">Download ZIP</a>
+          <button id="closeReportFooterBtn" class="btn btn-secondary" type="button">Close</button>
+        </div>
       </div>
     </div>
   </div>

@@ -45,9 +45,21 @@ const successImages = document.getElementById('successImages');
 const successErrors = document.getElementById('successErrors');
 const successZipSize = document.getElementById('successZipSize');
 const successFinish = document.getElementById('successFinish');
+const historyList = document.getElementById('historyList');
+const historyCount = document.getElementById('historyCount');
+const historyHelp = document.getElementById('historyHelp');
+const refreshHistoryBtn = document.getElementById('refreshHistoryBtn');
+const reportModal = document.getElementById('reportModal');
+const reportTitle = document.getElementById('reportTitle');
+const reportMeta = document.getElementById('reportMeta');
+const reportBody = document.getElementById('reportBody');
+const reportDownloadBtn = document.getElementById('reportDownloadBtn');
+const closeReportBtn = document.getElementById('closeReportBtn');
+const closeReportFooterBtn = document.getElementById('closeReportFooterBtn');
 
 const SETTINGS_KEY = 'piccatch-settings';
 const THEME_KEY = 'piccatch-theme';
+const HISTORY_LIMIT = 8;
 
 const MODE_PRESETS = {
   fast: {
@@ -99,6 +111,7 @@ let lastSample = null;
 let smoothedSpeed = 0;
 let dashboardRefs = {};
 let dashboardReady = false;
+let lastHistoryItems = [];
 
 setupDashboardShell();
 
@@ -127,6 +140,8 @@ updateDashboardMetrics({
   stage: 'idle',
   current: '—',
 });
+renderHistory([]);
+loadHistory({ silent: true });
 
 if (modeBadge) {
   modeBadge.classList.add('mode-badge-static');
@@ -193,10 +208,21 @@ closeSuccessBtn?.addEventListener('click', closeSuccess);
 successScreen?.addEventListener('click', (e) => {
   if (e.target === successScreen) closeSuccess();
 });
+reportModal?.addEventListener('click', (e) => {
+  if (e.target === reportModal) closeReport();
+});
 settingsModal?.addEventListener('click', (e) => {
   if (e.target === settingsModal) closeSettings();
 });
 closeSettingsBtn?.addEventListener('click', closeSettings);
+closeReportBtn?.addEventListener('click', closeReport);
+closeReportFooterBtn?.addEventListener('click', closeReport);
+refreshHistoryBtn?.addEventListener('click', () => loadHistory());
+historyList?.addEventListener('click', (e) => {
+  const reportBtn = e.target.closest('[data-report-job]');
+  if (!reportBtn) return;
+  openReport(reportBtn.dataset.reportJob);
+});
 saveSettingsBtn?.addEventListener('click', () => {
   saveCurrentSettings();
   closeSettings();
@@ -245,6 +271,10 @@ document.addEventListener('keydown', (e) => {
   }
 
   if (e.key === 'Escape') {
+    if (!reportModal.hidden) {
+      closeReport();
+      return;
+    }
     if (!settingsModal.hidden) {
       closeSettings();
       return;
@@ -317,6 +347,20 @@ function closeSuccess() {
   document.body.style.overflow = '';
 }
 
+function openReportModal() {
+  if (!reportModal) return;
+  reportModal.hidden = false;
+  document.body.style.overflow = 'hidden';
+}
+
+function closeReport() {
+  if (!reportModal) return;
+  reportModal.hidden = true;
+  if (settingsModal?.hidden !== false && successScreen?.hidden !== false) {
+    document.body.style.overflow = '';
+  }
+}
+
 function toggleTheme() {
   const isDark = !document.body.classList.contains('theme-dark');
   setTheme(isDark);
@@ -326,7 +370,7 @@ function toggleTheme() {
 function setTheme(isDark) {
   document.body.classList.toggle('theme-dark', isDark);
   if (themeBtn) {
-    themeBtn.textContent = isDark ? '☀ Light mode' : '🌙 Dark mode';
+    themeBtn.textContent = isDark ? 'Light mode' : 'Dark mode';
     themeBtn.setAttribute('aria-label', isDark ? 'Switch to light mode' : 'Switch to dark mode');
   }
 }
@@ -612,6 +656,7 @@ async function startUpload() {
 
     jobId = data.jobId;
     updateTimelineFromPhase('download', 'Job queued');
+    loadHistory({ silent: true });
     pollStatus();
   } catch (err) {
     setStatus('Upload error: ' + err.message, 'error');
@@ -662,6 +707,7 @@ function pollStatus() {
         }
 
         setProcessingState(false);
+        loadHistory({ silent: true });
         clearTimeout(pollTimer);
         return;
       }
@@ -671,6 +717,7 @@ function pollStatus() {
         setProgress(0, '0%');
         updateTimelineFromPhase('error', data.error || 'Processing failed');
         setProcessingState(false);
+        loadHistory({ silent: true });
         clearTimeout(pollTimer);
         return;
       }
@@ -698,6 +745,126 @@ async function readApiJson(response, endpoint) {
   }
 }
 
+async function loadHistory({ silent = false } = {}) {
+  if (!historyList) return;
+
+  try {
+    if (!silent) {
+      historyList.classList.add('is-loading');
+      historyHelp.textContent = 'Refreshing recent processing runs...';
+    }
+
+    const endpoint = `/api/history?limit=${HISTORY_LIMIT}`;
+    const res = await fetch(endpoint, { cache: 'no-store' });
+    const data = await readApiJson(res, endpoint);
+    if (!res.ok || !data.ok) throw new Error(data.message || 'Could not load history');
+
+    renderHistory(Array.isArray(data.history) ? data.history : []);
+  } catch (err) {
+    renderHistoryError(err.message || 'Could not load history');
+  } finally {
+    historyList.classList.remove('is-loading');
+  }
+}
+
+function renderHistory(items) {
+  if (!historyList) return;
+
+  lastHistoryItems = Array.isArray(items) ? items : [];
+  const count = lastHistoryItems.length;
+
+  if (historyCount) {
+    historyCount.textContent = `${count} ${count === 1 ? 'run' : 'runs'}`;
+  }
+
+  if (historyHelp) {
+    historyHelp.textContent = count
+      ? `Showing the latest ${Math.min(count, HISTORY_LIMIT)} runs from this server session.`
+      : 'Recent processing runs in this server session.';
+  }
+
+  if (!count) {
+    historyList.innerHTML = '<div class="history-empty">No processing runs yet.</div>';
+    return;
+  }
+
+  historyList.innerHTML = lastHistoryItems.map(renderHistoryItem).join('');
+}
+
+function renderHistoryItem(item) {
+  const status = formatHistoryStatus(item.status);
+  const finished = item.finishedAt ? formatHistoryDate(item.finishedAt) : status === 'Processing' || status === 'Queued' ? 'In progress' : '—';
+  const zipSize = item.zipSizeText && item.zipSizeText !== '—' ? item.zipSizeText : '—';
+  const downloadAction = item.downloadReady && item.downloadUrl
+    ? `<a class="history-action history-action-primary" href="${escapeHtml(item.downloadUrl)}">Download again</a>`
+    : '<button class="history-action" type="button" disabled>Download again</button>';
+  const reportAction = item.reportReady
+    ? `<button class="history-action" type="button" data-report-job="${escapeHtml(item.jobId)}">View report</button>`
+    : '<button class="history-action" type="button" disabled>View report</button>';
+
+  return `
+    <article class="history-item">
+      <div class="history-topline">
+        <div class="history-file">${escapeHtml(item.fileName || 'catalog.xlsx')}</div>
+        <span class="history-status ${statusClass(item.status)}">${escapeHtml(status)}</span>
+      </div>
+      <div class="history-meta-grid">
+        <span><b>${Number(item.ready || 0)}</b> ready</span>
+        <span><b>${Number(item.failed || 0)}</b> failed</span>
+        <span><b>${escapeHtml(zipSize)}</b> ZIP</span>
+        <span><b>${escapeHtml(finished)}</b> finish</span>
+      </div>
+      <div class="history-actions">
+        ${downloadAction}
+        ${reportAction}
+      </div>
+    </article>
+  `;
+}
+
+function renderHistoryError(message) {
+  if (!historyList) return;
+  historyList.innerHTML = `<div class="history-empty history-empty-error">${escapeHtml(message)}</div>`;
+  if (historyHelp) historyHelp.textContent = 'History could not be loaded.';
+}
+
+async function openReport(jobId) {
+  if (!jobId || !reportModal) return;
+
+  const historyItem = lastHistoryItems.find((item) => item.jobId === jobId);
+  reportTitle.textContent = historyItem?.fileName || 'Run report';
+  reportMeta.textContent = 'Loading report...';
+  reportBody.textContent = 'Loading report...';
+  reportDownloadBtn.style.display = 'none';
+  reportDownloadBtn.href = '#';
+  openReportModal();
+
+  try {
+    const endpoint = `/api/report/${encodeURIComponent(jobId)}`;
+    const res = await fetch(endpoint, { cache: 'no-store' });
+    const data = await readApiJson(res, endpoint);
+    if (!res.ok || !data.ok) throw new Error(data.message || 'Could not load report');
+
+    reportTitle.textContent = data.fileName || 'Run report';
+    reportMeta.textContent = [
+      formatHistoryStatus(data.status),
+      `${Number(data.ready || 0)} ready`,
+      `${Number(data.failed || 0)} failed`,
+      data.zipSizeText || 'ZIP —',
+      data.finishedAt ? formatHistoryDate(data.finishedAt) : 'Not finished',
+    ].join(' · ');
+    reportBody.textContent = data.reportText || 'No report text is available yet for this run.';
+
+    if (data.downloadReady && data.downloadUrl) {
+      reportDownloadBtn.href = data.downloadUrl;
+      reportDownloadBtn.style.display = 'inline-flex';
+    }
+  } catch (err) {
+    reportMeta.textContent = 'Report unavailable';
+    reportBody.textContent = err.message || 'Could not load report.';
+  }
+}
+
 function renderStatus(data) {
   lastStatusSnapshot = data;
 
@@ -705,7 +872,8 @@ function renderStatus(data) {
   animateCount(rowsCountEl, Number(data.total ?? 0));
   animateCount(okCountEl, Number(data.ready ?? 0));
   animateCount(errCountEl, Number(data.failed ?? 0));
-  currentItemEl.textContent = data.current || '—';
+  const currentLabel = data.status === 'done' ? 'Complete' : (data.current || '—');
+  currentItemEl.textContent = currentLabel;
 
   const progress = Number(data.progress || 0);
   const done = Number(data.done || 0);
@@ -722,7 +890,6 @@ function renderStatus(data) {
     eta: metrics.etaText,
     progress,
     stage: data.status,
-    current: data.current || '—',
   });
 
   if (startedAt && progress > 0 && progress < 100) {
@@ -1158,7 +1325,8 @@ function computeMetrics(data) {
     smoothedSpeed = smoothedSpeed ? (smoothedSpeed * 0.68 + instantSpeed * 0.32) : instantSpeed;
   }
 
-  const speed = Number.isFinite(smoothedSpeed) ? smoothedSpeed : 0;
+  const averageSpeed = done > 0 ? done / (elapsedMs / 1000) : 0;
+  const speed = Number.isFinite(smoothedSpeed) && smoothedSpeed > 0 ? smoothedSpeed : averageSpeed;
   const avgMs = done > 0 ? elapsedMs / done : 0;
   const remainingSec = speed > 0 ? Math.max(0, (total - done) / speed) : 0;
   const etaTextValue = progress >= 100 ? 'Done' : remainingSec > 0 ? formatDuration(remainingSec) : '—';
@@ -1171,11 +1339,11 @@ function computeMetrics(data) {
   };
 }
 
-function updateDashboardMetrics({ ready, failed, speed, avgMs, eta, progress, stage, current }) {
+function updateDashboardMetrics({ ready, failed, speed, avgMs, eta, progress, stage }) {
   if (!dashboardReady) return;
 
   setDashValue(dashboardRefs.speed, `${formatNumber(speed, 1)} img/s`);
-  setDashSub(dashboardRefs.speedSub, current && stage !== 'done' ? `Now: ${current}` : 'Live throughput');
+  setDashSub(dashboardRefs.speedSub, stage === 'done' ? 'Final throughput' : 'Live throughput');
 
   setDashValue(dashboardRefs.avg, avgMs ? `${Math.round(avgMs)} ms/img` : '—');
   setDashSub(dashboardRefs.avgSub, 'Average per processed row');
@@ -1251,6 +1419,39 @@ function formatClockTime(ts) {
   if (!Number.isFinite(ts)) return '—';
   const d = new Date(ts);
   return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+function formatHistoryDate(ts) {
+  const value = Number(ts || 0);
+  if (!Number.isFinite(value) || value <= 0) return '—';
+
+  const date = new Date(value);
+  const today = new Date();
+  const sameDay =
+    date.getFullYear() === today.getFullYear() &&
+    date.getMonth() === today.getMonth() &&
+    date.getDate() === today.getDate();
+
+  return date.toLocaleString([], sameDay
+    ? { hour: '2-digit', minute: '2-digit' }
+    : { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
+function formatHistoryStatus(status) {
+  const normalized = String(status || '').toLowerCase();
+  if (normalized === 'done') return 'Done';
+  if (normalized === 'error') return 'Error';
+  if (normalized === 'processing') return 'Processing';
+  if (normalized === 'queued') return 'Queued';
+  return 'Unknown';
+}
+
+function statusClass(status) {
+  const normalized = String(status || '').toLowerCase();
+  if (normalized === 'done') return 'is-success';
+  if (normalized === 'error') return 'is-error';
+  if (normalized === 'processing' || normalized === 'queued') return 'is-active';
+  return '';
 }
 
 function formatDuration(sec) {

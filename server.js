@@ -28,6 +28,7 @@ const LOG_LIMIT = 220;
 const SNAPSHOT_LOG_LIMIT = 140;
 const MAX_LOG_LINE_LENGTH = 2500;
 const MAX_REPORT_ERROR_LENGTH = 1200;
+const HISTORY_LIMIT = clampInt(process.env.HISTORY_LIMIT, 1, 100, 12);
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
@@ -42,6 +43,7 @@ const DEFAULT_SETTINGS = {
 };
 
 const jobs = new Map();
+const history = [];
 
 app.set('trust proxy', 1);
 app.disable('x-powered-by');
@@ -123,6 +125,10 @@ function getApiInfoPayload() {
       done: Array.from(jobs.values()).filter((job) => job.status === 'done').length,
       error: Array.from(jobs.values()).filter((job) => job.status === 'error').length,
     },
+    history: {
+      total: history.length,
+      limit: HISTORY_LIMIT,
+    },
   };
 }
 
@@ -195,6 +201,46 @@ app.get('/api/status/:jobId', (req, res) => {
   }
 
   return res.status(200).json({ ok: true, ...snapshot });
+});
+
+app.get('/api/history', (req, res) => {
+  const limit = clampInt(req.query.limit, 1, HISTORY_LIMIT, HISTORY_LIMIT);
+  return res.status(200).json({
+    ok: true,
+    limit,
+    history: getHistoryPayload(limit),
+  });
+});
+
+app.get('/api/report/:jobId', (req, res) => {
+  const job = jobs.get(req.params.jobId);
+  const entry = history.find((item) => item.jobId === req.params.jobId);
+
+  if (!job && !entry) {
+    return res.status(404).json({
+      ok: false,
+      message: 'Report not found.',
+    });
+  }
+
+  const source = job || entry;
+  const downloadReady = Boolean(job?.zipPath && job.status === 'done');
+  const reportText = source.reportText || buildFallbackReport(source);
+  return res.status(200).json({
+    ok: true,
+    jobId: source.id || source.jobId,
+    fileName: source.fileName || 'catalog.xlsx',
+    status: source.status || 'unknown',
+    ready: Number(source.ready || 0),
+    failed: Number(source.failed || 0),
+    zipSizeBytes: Number(source.zipSizeBytes || 0),
+    zipSizeText: source.zipSizeText || '—',
+    finishedAt: source.finishedAt || null,
+    reportText,
+    failedCsv: source.failedCsv || '',
+    downloadReady,
+    downloadUrl: downloadReady ? `/api/download/${job.id}` : null,
+  });
 });
 
 app.get('/api/download/:jobId', async (req, res) => {
@@ -338,6 +384,7 @@ async function createJob({ fileName, rows, referer, settings }) {
 
     startedAt: now,
     updatedAt: now,
+    finishedAt: null,
     expiresAt: now + JOB_RETENTION_MS,
     lastDownloadedAt: null,
 
@@ -356,6 +403,7 @@ async function createJob({ fileName, rows, referer, settings }) {
   };
 
   jobs.set(id, job);
+  upsertHistoryEntry(job);
   return job;
 }
 
@@ -399,12 +447,103 @@ function updateJob(id, patch = {}) {
   if (!job) return null;
 
   const updatedAt = Date.now();
-  Object.assign(job, patch, {
+  const nextPatch = { ...patch };
+  if (isFinalStatus(nextPatch.status) && !job.finishedAt) {
+    nextPatch.finishedAt = updatedAt;
+  }
+
+  Object.assign(job, nextPatch, {
     updatedAt,
     expiresAt: updatedAt + JOB_RETENTION_MS,
   });
 
+  upsertHistoryEntry(job);
   return job;
+}
+
+function upsertHistoryEntry(job) {
+  if (!job || !job.id) return null;
+
+  const existingIndex = history.findIndex((item) => item.jobId === job.id);
+  const existing = existingIndex >= 0 ? history[existingIndex] : {};
+  const entry = {
+    ...existing,
+    jobId: job.id,
+    fileName: job.fileName || 'catalog.xlsx',
+    status: job.status || 'unknown',
+    ready: Number(job.ready || 0),
+    failed: Number(job.failed || 0),
+    total: Number(job.total || 0),
+    zipSizeBytes: Number(job.zipSizeBytes || 0),
+    zipSizeText: job.zipSizeText || '—',
+    startedAt: job.startedAt || existing.startedAt || Date.now(),
+    updatedAt: job.updatedAt || Date.now(),
+    finishedAt: job.finishedAt || (isFinalStatus(job.status) ? job.updatedAt : null),
+    downloadName: job.downloadName || existing.downloadName || null,
+    message: job.message || existing.message || '',
+    error: job.error || existing.error || '',
+    reportText: job.reportText || existing.reportText || '',
+    failedCsv: job.failedCsv || existing.failedCsv || '',
+  };
+
+  if (existingIndex >= 0) {
+    history.splice(existingIndex, 1);
+  }
+
+  history.unshift(entry);
+  if (history.length > HISTORY_LIMIT) {
+    history.splice(HISTORY_LIMIT);
+  }
+
+  return entry;
+}
+
+function getHistoryPayload(limit = HISTORY_LIMIT) {
+  const max = clampInt(limit, 1, HISTORY_LIMIT, HISTORY_LIMIT);
+  return history.slice(0, max).map((entry) => {
+    const job = jobs.get(entry.jobId);
+    const source = job || entry;
+    const downloadReady = Boolean(job?.zipPath && job.status === 'done');
+    const status = source.status || entry.status || 'unknown';
+    const reportReady = isFinalStatus(status) || Boolean(source.reportText || entry.reportText);
+
+    return {
+      jobId: entry.jobId,
+      fileName: source.fileName || entry.fileName || 'catalog.xlsx',
+      status,
+      ready: Number(source.ready ?? entry.ready ?? 0),
+      failed: Number(source.failed ?? entry.failed ?? 0),
+      total: Number(source.total ?? entry.total ?? 0),
+      zipSizeBytes: Number(source.zipSizeBytes ?? entry.zipSizeBytes ?? 0),
+      zipSizeText: source.zipSizeText || entry.zipSizeText || '—',
+      startedAt: source.startedAt || entry.startedAt || null,
+      updatedAt: source.updatedAt || entry.updatedAt || null,
+      finishedAt: source.finishedAt || entry.finishedAt || null,
+      downloadName: source.downloadName || entry.downloadName || null,
+      downloadReady,
+      downloadUrl: downloadReady ? `/api/download/${entry.jobId}` : null,
+      reportReady,
+      reportUrl: reportReady ? `/api/report/${entry.jobId}` : null,
+    };
+  });
+}
+
+function isFinalStatus(status) {
+  return status === 'done' || status === 'error';
+}
+
+function buildFallbackReport(source = {}) {
+  return [
+    `${APP_NAME} Processing Report`,
+    `Source file: ${source.fileName || 'catalog.xlsx'}`,
+    `Status: ${source.status || 'unknown'}`,
+    `Success: ${Number(source.ready || 0)}`,
+    `Failed: ${Number(source.failed || 0)}`,
+    `ZIP size: ${source.zipSizeText || '—'}`,
+    `Finished: ${source.finishedAt ? new Date(source.finishedAt).toLocaleString() : '(not finished)'}`,
+    '',
+    source.error || source.message || 'A detailed report has not been generated for this run yet.',
+  ].join('\n');
 }
 
 function appendLog(id, message) {
