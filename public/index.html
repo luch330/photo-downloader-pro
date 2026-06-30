@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="color-scheme" content="light dark" />
-  <meta name="theme-color" content="#e7fbff" />
+  <meta name="theme-color" content="#eefcff" />
   <title>PicCatch Merchant Tools</title>
 
   <link
@@ -42,49 +42,38 @@
     <section class="hero">
       <div class="hero-copy-wrap">
         <div class="eyebrow">Merchant media pipeline</div>
-        <h1>Catalog image batches, shipped cleanly.</h1>
+        <h1>Clean catalog image batches, fast.</h1>
         <p class="hero-copy">
-          Convert messy merchant spreadsheets into normalized image archives with live progress, resilient downloads, and a clear failure trail.
+          Upload a merchant workbook, validate the detected columns, and export a normalized ZIP with a clear processing report.
         </p>
-      </div>
-
-      <div class="hero-panel" aria-hidden="true">
-        <div class="hero-orbit">
-          <span></span>
-          <span></span>
-          <span></span>
-        </div>
-        <div class="hero-stat">
-          <span>Pipeline</span>
-          <strong>Ready</strong>
-        </div>
       </div>
     </section>
 
     <main class="dashboard-layout">
-      <section class="panel panel-main">
-        <div class="panel-glow" aria-hidden="true"></div>
+      <div class="main-column">
+        <section class="panel panel-main">
+          <div class="panel-glow" aria-hidden="true"></div>
 
         <div class="workflow-head">
           <div>
             <div class="eyebrow">Step 1</div>
             <h2>Upload catalog</h2>
-            <p class="upload-copy">Drop an Excel workbook, verify the detected columns, then build the ZIP.</p>
+            <p class="upload-copy">Drop an Excel workbook to map item names and image URLs.</p>
           </div>
           <div class="upload-meta">
             <span class="mini-chip">.xlsx / .xls</span>
-            <span class="mini-chip">Header skipped</span>
+            <span class="mini-chip">Auto-detect</span>
             <span class="mini-chip">ZIP report</span>
           </div>
         </div>
 
         <div id="dropzone" class="dropzone" tabindex="0" role="button" aria-label="Upload Excel file" aria-busy="false">
-          <div class="drop-icon" aria-hidden="true">
-            <span></span>
+          <div class="drop-visual" aria-hidden="true">
+            <div class="upload-icon"><span></span></div>
           </div>
           <div class="drop-copy">
             <h3>Drop workbook here</h3>
-            <p>Choose a merchant catalog and PicCatch will map item names and image URLs automatically.</p>
+            <p>PicCatch reads the first sheet, finds the image column, downloads assets, and packages the final archive.</p>
           </div>
 
           <div class="actions">
@@ -110,7 +99,7 @@
         <div class="progress-block">
           <div class="progress-topline">
             <span id="progressText">0%</span>
-            <span id="etaText">ETA: —</span>
+            <span id="etaText">ETA: -</span>
           </div>
           <div class="progress-bar" role="progressbar" aria-label="Processing progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
             <div id="bar" class="bar" aria-hidden="true"></div>
@@ -140,12 +129,85 @@
         </div>
 
         <div id="status" class="status" role="status" aria-live="polite">Waiting for a file.</div>
+        </section>
+
+        <section class="insights-grid" aria-label="Run insights">
+      <section id="historyCard" class="dashboard-card history-card">
+        <div class="dashboard-head compact-head">
+          <div>
+            <div class="status-card-title">Session history</div>
+            <p id="historyHelp" class="summary-help">Recent processing runs in this server session.</p>
+          </div>
+          <div class="history-toolbar">
+            <span id="historyCount" class="overview-badge">0 runs</span>
+            <button id="refreshHistoryBtn" class="icon-btn icon-btn-small" type="button" aria-label="Refresh history">&#8635;</button>
+          </div>
+        </div>
+        <div id="historyList" class="history-list" aria-live="polite">
+          <div class="history-empty">No processing runs yet.</div>
+        </div>
       </section>
+
+      <section id="errorSummaryCard" class="dashboard-card error-summary-card">
+        <div class="dashboard-head compact-head">
+          <div>
+            <div class="status-card-title">Error summary</div>
+            <p id="errorSummaryHelp" class="summary-help">This will summarize what failed in the latest run.</p>
+          </div>
+        </div>
+        <div id="errorSummaryGrid" class="error-summary-grid">
+          <div class="summary-empty">No error summary yet.</div>
+        </div>
+
+        <div class="actions actions-left">
+          <button id="retryFailedBtn" class="btn btn-secondary" type="button" disabled>Retry failed</button>
+          <button id="viewErrorsBtn" class="btn btn-secondary" type="button">View details</button>
+        </div>
+      </section>
+        </section>
+      </div>
 
       <aside class="panel panel-side">
         <div class="dashboard-stack">
-          <section class="dashboard-card dashboard-hero-card">
-            <div class="dashboard-head">
+          <section class="dashboard-card pipeline-status-card" data-status="ready">
+            <div class="dashboard-head compact-head">
+              <div>
+                <div class="eyebrow">Pipeline Status</div>
+                <h2 class="pipeline-status-state">Ready</h2>
+                <p class="side-copy pipeline-status-copy">Upload a catalog to begin processing.</p>
+              </div>
+              <div class="status-indicator" data-pipeline-indicator aria-live="polite">
+                <span class="status-dot" aria-hidden="true"></span>
+                <span class="status-label">Ready</span>
+              </div>
+            </div>
+
+            <div class="pipeline-flow" aria-label="Pipeline flow">
+              <div class="pipeline-flow-step" data-pipeline-step="upload">
+                <span class="pipeline-node"></span>
+                <span>Upload</span>
+              </div>
+              <div class="pipeline-flow-step" data-pipeline-step="detect">
+                <span class="pipeline-node"></span>
+                <span>Detect columns</span>
+              </div>
+              <div class="pipeline-flow-step" data-pipeline-step="download">
+                <span class="pipeline-node"></span>
+                <span>Download images</span>
+              </div>
+              <div class="pipeline-flow-step" data-pipeline-step="normalize">
+                <span class="pipeline-node"></span>
+                <span>Normalize</span>
+              </div>
+              <div class="pipeline-flow-step" data-pipeline-step="zip">
+                <span class="pipeline-node"></span>
+                <span>Build ZIP</span>
+              </div>
+            </div>
+          </section>
+
+          <section class="dashboard-card metrics-card">
+            <div class="dashboard-head compact-head">
               <div>
                 <div class="eyebrow">Command center</div>
                 <h2>Processing dashboard</h2>
@@ -155,62 +217,59 @@
 
             <div class="dashboard-metrics dashboard-metrics-primary">
               <div class="dash-card dash-card-accent">
-                <span class="dash-card-label">Speed</span>
+                <div class="dash-card-top"><span class="metric-icon metric-icon-speed" aria-hidden="true"></span><span class="dash-card-label">Speed</span></div>
                 <span class="dash-card-value" data-dash="speed">0.0 img/s</span>
                 <span class="dash-card-sub" data-dash-sub="speed">Live throughput</span>
               </div>
               <div class="dash-card">
-                <span class="dash-card-label">Average</span>
-                <span class="dash-card-value" data-dash="avg">—</span>
+                <div class="dash-card-top"><span class="metric-icon metric-icon-average" aria-hidden="true"></span><span class="dash-card-label">Average</span></div>
+                <span class="dash-card-value" data-dash="avg">-</span>
                 <span class="dash-card-sub" data-dash-sub="avg">Average per row</span>
               </div>
               <div class="dash-card">
-                <span class="dash-card-label">ETA</span>
-                <span class="dash-card-value" data-dash="remaining">—</span>
+                <div class="dash-card-top"><span class="metric-icon metric-icon-eta" aria-hidden="true"></span><span class="dash-card-label">ETA</span></div>
+                <span class="dash-card-value" data-dash="remaining">-</span>
                 <span class="dash-card-sub" data-dash-sub="remaining">Estimated finish</span>
               </div>
               <div class="dash-card">
-                <span class="dash-card-label">Progress</span>
+                <div class="dash-card-top"><span class="metric-icon metric-icon-progress" aria-hidden="true"></span><span class="dash-card-label">Progress</span></div>
                 <span class="dash-card-value" data-dash="progress">0%</span>
-                <span class="dash-card-sub" data-dash-sub="progress">0 ready · 0 errors</span>
+                <span class="dash-card-sub" data-dash-sub="progress">0 ready / 0 errors</span>
               </div>
-            </div>
-
-            <div class="dashboard-metrics dashboard-metrics-secondary">
               <div class="dash-card">
-                <span class="dash-card-label">Images</span>
-                <span id="okCount" class="dash-card-value">—</span>
+                <div class="dash-card-top"><span class="metric-icon metric-icon-images" aria-hidden="true"></span><span class="dash-card-label">Images</span></div>
+                <span id="okCount" class="dash-card-value">-</span>
                 <span class="dash-card-sub">Ready so far</span>
               </div>
-              <div class="dash-card">
-                <span class="dash-card-label">Errors</span>
-                <span id="errCount" class="dash-card-value">—</span>
+              <div class="dash-card dash-card-danger">
+                <div class="dash-card-top"><span class="metric-icon metric-icon-errors" aria-hidden="true"></span><span class="dash-card-label">Errors</span></div>
+                <span id="errCount" class="dash-card-value">-</span>
                 <span class="dash-card-sub">Failed rows</span>
               </div>
-              <div class="dash-card dash-card-wide">
-                <span class="dash-card-label">Current item</span>
-                <span id="currentItem" class="dash-card-value dash-card-value-small">—</span>
-                <span class="dash-card-sub">Separate from speed</span>
-              </div>
               <div class="dash-card">
-                <span class="dash-card-label">ZIP size</span>
-                <span id="zipSize" class="dash-card-value">—</span>
+                <div class="dash-card-top"><span class="metric-icon metric-icon-zip" aria-hidden="true"></span><span class="dash-card-label">ZIP size</span></div>
+                <span id="zipSize" class="dash-card-value">-</span>
                 <span class="dash-card-sub">Archive output</span>
+              </div>
+              <div class="dash-card dash-card-wide">
+                <div class="dash-card-top"><span class="metric-icon metric-icon-current" aria-hidden="true"></span><span class="dash-card-label">Current item</span></div>
+                <span id="currentItem" class="dash-card-value dash-card-value-small">-</span>
+                <span class="dash-card-sub">Separate from speed</span>
               </div>
             </div>
 
             <div class="dashboard-mini-grid">
               <div class="mini-stat">
                 <span class="k">File</span>
-                <span id="fileName" class="v">—</span>
+                <span id="fileName" class="v">-</span>
               </div>
               <div class="mini-stat">
                 <span class="k">Rows</span>
-                <span id="rowsCount" class="v">—</span>
+                <span id="rowsCount" class="v">-</span>
               </div>
               <div class="mini-stat">
                 <span class="k">Finish</span>
-                <span id="estimatedFinish" class="v">—</span>
+                <span id="estimatedFinish" class="v">-</span>
               </div>
             </div>
           </section>
@@ -219,52 +278,16 @@
             <div class="timeline-head">
               <div>
                 <div class="status-card-title">Processing timeline</div>
-                <p class="side-copy">Each stage updates as the batch moves through the pipeline.</p>
+                <p class="side-copy">Deployment-style progress for the active batch.</p>
               </div>
               <div class="overview-badge">Realtime</div>
             </div>
             <div class="timeline" data-timeline>
-              <div class="timeline-step is-active">
+              <div class="timeline-step">
                 <div class="dot"></div>
-                <div>
-                  <div class="label">Upload</div>
-                  <div class="detail">Pick an Excel file</div>
-                </div>
+                <div class="label">Upload</div>
                 <div class="detail">Ready</div>
               </div>
-            </div>
-          </section>
-
-          <section id="historyCard" class="dashboard-card history-card">
-            <div class="dashboard-head compact-head">
-              <div>
-                <div class="status-card-title">Session history</div>
-                <p id="historyHelp" class="summary-help">Recent processing runs in this server session.</p>
-              </div>
-              <div class="history-toolbar">
-                <span id="historyCount" class="overview-badge">0 runs</span>
-                <button id="refreshHistoryBtn" class="icon-btn icon-btn-small" type="button" aria-label="Refresh history">↻</button>
-              </div>
-            </div>
-            <div id="historyList" class="history-list" aria-live="polite">
-              <div class="history-empty">No processing runs yet.</div>
-            </div>
-          </section>
-
-          <section id="errorSummaryCard" class="dashboard-card">
-            <div class="dashboard-head compact-head">
-              <div>
-                <div class="status-card-title">Error summary</div>
-                <p id="errorSummaryHelp" class="summary-help">This will summarize what failed in the latest run.</p>
-              </div>
-            </div>
-            <div id="errorSummaryGrid" class="error-summary-grid">
-              <div class="summary-empty">No error summary yet.</div>
-            </div>
-
-            <div class="actions actions-left">
-              <button id="retryFailedBtn" class="btn btn-secondary" type="button" disabled>Retry failed</button>
-              <button id="viewErrorsBtn" class="btn btn-secondary" type="button">View details</button>
             </div>
           </section>
 
@@ -272,6 +295,7 @@
         </div>
       </aside>
     </main>
+
   </div>
 
   <div id="settingsModal" class="modal-overlay" hidden>
@@ -282,7 +306,7 @@
           <h2 id="settingsTitle">Processing modes</h2>
           <p class="modal-copy">Choose a preset or tune timeout, retry, and concurrency for the current merchant batch.</p>
         </div>
-        <button id="closeSettingsBtn" class="icon-btn" type="button" aria-label="Close settings">×</button>
+        <button id="closeSettingsBtn" class="icon-btn" type="button" aria-label="Close settings">&times;</button>
       </div>
 
       <div class="mode-grid">
@@ -334,7 +358,7 @@
       </div>
 
       <div class="modal-footer">
-        <div class="shortcut-hint">⌘O open file · ⌘Enter upload · Esc close</div>
+        <div class="shortcut-hint">Settings apply to the next upload.</div>
         <div class="actions">
           <button id="resetSettingsBtn" class="btn btn-secondary" type="button">Reset balanced</button>
           <button id="saveSettingsBtn" class="btn btn-primary" type="button">Save settings</button>
@@ -344,32 +368,32 @@
   </div>
 
   <div id="successScreen" class="success-overlay" hidden>
-    <div class="success-card">
-      <div class="success-icon" aria-hidden="true">✓</div>
+    <div class="success-card" role="dialog" aria-modal="true" aria-labelledby="successTitle">
+      <div class="success-icon" aria-hidden="true">&check;</div>
       <div class="eyebrow">ZIP ready</div>
-      <h2>Batch complete</h2>
-      <p class="success-copy">Your archive is ready, with the image set and processing report packaged together.</p>
+      <h2 id="successTitle">Batch complete</h2>
+      <p class="success-copy">The archive is ready with normalized images and the processing report packaged together.</p>
 
       <div class="success-metrics">
         <div class="metric-card">
           <span>Images</span>
-          <strong id="successImages">—</strong>
+          <strong id="successImages">-</strong>
         </div>
         <div class="metric-card">
           <span>Errors</span>
-          <strong id="successErrors">—</strong>
+          <strong id="successErrors">-</strong>
         </div>
         <div class="metric-card">
           <span>ZIP size</span>
-          <strong id="successZipSize">—</strong>
+          <strong id="successZipSize">-</strong>
         </div>
         <div class="metric-card">
           <span>Finished</span>
-          <strong id="successFinish">—</strong>
+          <strong id="successFinish">-</strong>
         </div>
       </div>
 
-      <div class="actions">
+      <div class="actions success-actions">
         <a id="successDownloadBtn" class="btn btn-primary" href="#">Download ZIP</a>
         <button id="successRetryBtn" class="btn btn-secondary" type="button" style="display:none;">Retry failed</button>
         <button id="closeSuccessBtn" class="btn btn-secondary" type="button">Close</button>
@@ -385,7 +409,7 @@
           <h2 id="reportTitle">Run report</h2>
           <p id="reportMeta" class="modal-copy">Report details will appear here.</p>
         </div>
-        <button id="closeReportBtn" class="icon-btn" type="button" aria-label="Close report">×</button>
+        <button id="closeReportBtn" class="icon-btn" type="button" aria-label="Close report">&times;</button>
       </div>
 
       <pre id="reportBody" class="report-body">Loading report...</pre>

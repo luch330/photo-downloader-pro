@@ -86,14 +86,14 @@ const MODE_PRESETS = {
 };
 
 const TIMELINE_STEPS = [
-  { key: 'upload', label: 'Upload', detail: 'Pick an Excel file' },
-  { key: 'read', label: 'Read Excel', detail: 'Parse workbook' },
-  { key: 'detect', label: 'Auto-detect', detail: 'Map columns' },
-  { key: 'download', label: 'Download', detail: 'Fetch images' },
-  { key: 'normalize', label: 'Normalize', detail: 'Process formats' },
-  { key: 'zip', label: 'Build ZIP', detail: 'Package files' },
-  { key: 'done', label: 'Done', detail: 'ZIP ready' },
+  { key: 'upload', label: 'Upload', detail: 'Workbook received' },
+  { key: 'detect', label: 'Detect columns', detail: 'Name and URL mapped' },
+  { key: 'download', label: 'Download images', detail: 'Assets fetched' },
+  { key: 'normalize', label: 'Normalize', detail: 'Formats processed' },
+  { key: 'zip', label: 'Build ZIP', detail: 'Archive generated' },
 ];
+
+const PIPELINE_STEPS = TIMELINE_STEPS.map((step) => step.key);
 
 let selectedFile = null;
 let parsedRows = [];
@@ -271,15 +271,15 @@ document.addEventListener('keydown', (e) => {
   }
 
   if (e.key === 'Escape') {
-    if (!reportModal.hidden) {
+    if (reportModal && !reportModal.hidden) {
       closeReport();
       return;
     }
-    if (!settingsModal.hidden) {
+    if (settingsModal && !settingsModal.hidden) {
       closeSettings();
       return;
     }
-    if (!successScreen.hidden) {
+    if (successScreen && !successScreen.hidden) {
       closeSuccess();
     }
   }
@@ -300,6 +300,12 @@ function setupDashboardShell() {
     remainingSub: document.querySelector('[data-dash-sub="remaining"]'),
     progressSub: document.querySelector('[data-dash-sub="progress"]'),
     timeline: document.querySelector('[data-timeline]'),
+    pipelineCard: document.querySelector('.pipeline-status-card'),
+    pipelineIndicator: document.querySelector('[data-pipeline-indicator]'),
+    pipelineLabel: document.querySelector('[data-pipeline-indicator] .status-label'),
+    pipelineStatus: document.querySelector('.pipeline-status-state'),
+    pipelineCopy: document.querySelector('.pipeline-status-copy'),
+    pipelineSteps: Array.from(document.querySelectorAll('[data-pipeline-step]')),
   };
 
   dashboardReady = true;
@@ -676,7 +682,7 @@ function pollStatus() {
       renderStatus(data);
 
       if (data.status === 'done') {
-        zipSizeEl.textContent = data.zipSizeText || data.downloadName || 'ready';
+        setDashValue(zipSizeEl, data.zipSizeText || data.downloadName || 'ready');
         setStatus('ZIP file is ready.', 'success');
         setProgress(100, '100%');
         downloadBtn.href = data.downloadUrl;
@@ -684,10 +690,10 @@ function pollStatus() {
         downloadBtn.textContent = 'Download ZIP';
 
         successDownloadBtn.href = data.downloadUrl;
-        successImages.textContent = String(data.ready ?? '—');
-        successErrors.textContent = String(data.failed ?? '—');
-        successZipSize.textContent = data.zipSizeText || data.downloadName || 'ready';
-        successFinish.textContent = estimatedFinishEl.textContent || '—';
+        animateCount(successImages, Number(data.ready || 0));
+        animateCount(successErrors, Number(data.failed || 0));
+        setDashValue(successZipSize, data.zipSizeText || data.downloadName || 'ready');
+        setDashValue(successFinish, estimatedFinishEl.textContent || '—');
 
         if (Array.isArray(data.failedRows) && data.failedRows.length) {
           lastFailedRows = normalizeFailedRows(data.failedRows);
@@ -751,7 +757,7 @@ async function loadHistory({ silent = false } = {}) {
   try {
     if (!silent) {
       historyList.classList.add('is-loading');
-      historyHelp.textContent = 'Refreshing recent processing runs...';
+      if (historyHelp) historyHelp.textContent = 'Refreshing recent processing runs...';
     }
 
     const endpoint = `/api/history?limit=${HISTORY_LIMIT}`;
@@ -763,7 +769,7 @@ async function loadHistory({ silent = false } = {}) {
   } catch (err) {
     renderHistoryError(err.message || 'Could not load history');
   } finally {
-    historyList.classList.remove('is-loading');
+    historyList?.classList.remove('is-loading');
   }
 }
 
@@ -788,37 +794,54 @@ function renderHistory(items) {
     return;
   }
 
-  historyList.innerHTML = lastHistoryItems.map(renderHistoryItem).join('');
+  historyList.innerHTML = `
+    <div class="history-table-wrap">
+      <table class="history-table">
+        <thead>
+          <tr>
+            <th scope="col">File</th>
+            <th scope="col">Finished</th>
+            <th scope="col">Images</th>
+            <th scope="col">Errors</th>
+            <th scope="col">Status</th>
+            <th scope="col">ZIP</th>
+            <th scope="col">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${lastHistoryItems.map(renderHistoryItem).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
 }
 
 function renderHistoryItem(item) {
   const status = formatHistoryStatus(item.status);
-  const finished = item.finishedAt ? formatHistoryDate(item.finishedAt) : status === 'Processing' || status === 'Queued' ? 'In progress' : '—';
-  const zipSize = item.zipSizeText && item.zipSizeText !== '—' ? item.zipSizeText : '—';
+  const finished = item.finishedAt ? formatHistoryDate(item.finishedAt) : status === 'Processing' || status === 'Queued' ? 'In progress' : '-';
+  const zipSize = item.zipSizeText && item.zipSizeText !== '—' ? item.zipSizeText : '-';
   const downloadAction = item.downloadReady && item.downloadUrl
-    ? `<a class="history-action history-action-primary" href="${escapeHtml(item.downloadUrl)}">Download again</a>`
-    : '<button class="history-action" type="button" disabled>Download again</button>';
+    ? `<a class="history-action history-action-primary" href="${escapeHtml(item.downloadUrl)}">Download</a>`
+    : '<button class="history-action" type="button" disabled>Download</button>';
   const reportAction = item.reportReady
-    ? `<button class="history-action" type="button" data-report-job="${escapeHtml(item.jobId)}">View report</button>`
-    : '<button class="history-action" type="button" disabled>View report</button>';
+    ? `<button class="history-action" type="button" data-report-job="${escapeHtml(item.jobId)}">Report</button>`
+    : '<button class="history-action" type="button" disabled>Report</button>';
 
   return `
-    <article class="history-item">
-      <div class="history-topline">
-        <div class="history-file">${escapeHtml(item.fileName || 'catalog.xlsx')}</div>
-        <span class="history-status ${statusClass(item.status)}">${escapeHtml(status)}</span>
-      </div>
-      <div class="history-meta-grid">
-        <span><b>${Number(item.ready || 0)}</b> ready</span>
-        <span><b>${Number(item.failed || 0)}</b> failed</span>
-        <span><b>${escapeHtml(zipSize)}</b> ZIP</span>
-        <span><b>${escapeHtml(finished)}</b> finish</span>
-      </div>
-      <div class="history-actions">
-        ${downloadAction}
-        ${reportAction}
-      </div>
-    </article>
+    <tr>
+      <td>
+        <div class="history-file-cell">
+          <span class="file-type-icon" aria-hidden="true">XLS</span>
+          <div class="history-file" title="${escapeHtml(item.fileName || 'catalog.xlsx')}">${escapeHtml(item.fileName || 'catalog.xlsx')}</div>
+        </div>
+      </td>
+      <td>${escapeHtml(finished)}</td>
+      <td>${Number(item.ready || 0)}</td>
+      <td>${Number(item.failed || 0)}</td>
+      <td><span class="history-status ${statusClass(item.status)}"><span class="history-status-dot" aria-hidden="true"></span>${escapeHtml(status)}</span></td>
+      <td>${escapeHtml(zipSize)}</td>
+      <td><div class="history-actions">${downloadAction}${reportAction}</div></td>
+    </tr>
   `;
 }
 
@@ -832,11 +855,13 @@ async function openReport(jobId) {
   if (!jobId || !reportModal) return;
 
   const historyItem = lastHistoryItems.find((item) => item.jobId === jobId);
-  reportTitle.textContent = historyItem?.fileName || 'Run report';
-  reportMeta.textContent = 'Loading report...';
-  reportBody.textContent = 'Loading report...';
-  reportDownloadBtn.style.display = 'none';
-  reportDownloadBtn.href = '#';
+  if (reportTitle) reportTitle.textContent = historyItem?.fileName || 'Run report';
+  if (reportMeta) reportMeta.textContent = 'Loading report...';
+  if (reportBody) reportBody.textContent = 'Loading report...';
+  if (reportDownloadBtn) {
+    reportDownloadBtn.style.display = 'none';
+    reportDownloadBtn.href = '#';
+  }
   openReportModal();
 
   try {
@@ -845,23 +870,23 @@ async function openReport(jobId) {
     const data = await readApiJson(res, endpoint);
     if (!res.ok || !data.ok) throw new Error(data.message || 'Could not load report');
 
-    reportTitle.textContent = data.fileName || 'Run report';
-    reportMeta.textContent = [
+    if (reportTitle) reportTitle.textContent = data.fileName || 'Run report';
+    if (reportMeta) reportMeta.textContent = [
       formatHistoryStatus(data.status),
       `${Number(data.ready || 0)} ready`,
       `${Number(data.failed || 0)} failed`,
       data.zipSizeText || 'ZIP —',
       data.finishedAt ? formatHistoryDate(data.finishedAt) : 'Not finished',
     ].join(' · ');
-    reportBody.textContent = data.reportText || 'No report text is available yet for this run.';
+    if (reportBody) reportBody.textContent = data.reportText || 'No report text is available yet for this run.';
 
-    if (data.downloadReady && data.downloadUrl) {
+    if (data.downloadReady && data.downloadUrl && reportDownloadBtn) {
       reportDownloadBtn.href = data.downloadUrl;
       reportDownloadBtn.style.display = 'inline-flex';
     }
   } catch (err) {
-    reportMeta.textContent = 'Report unavailable';
-    reportBody.textContent = err.message || 'Could not load report.';
+    if (reportMeta) reportMeta.textContent = 'Report unavailable';
+    if (reportBody) reportBody.textContent = err.message || 'Could not load report.';
   }
 }
 
@@ -873,7 +898,7 @@ function renderStatus(data) {
   animateCount(okCountEl, Number(data.ready ?? 0));
   animateCount(errCountEl, Number(data.failed ?? 0));
   const currentLabel = data.status === 'done' ? 'Complete' : (data.current || '—');
-  currentItemEl.textContent = currentLabel;
+  setDashValue(currentItemEl, currentLabel);
 
   const progress = Number(data.progress || 0);
   const done = Number(data.done || 0);
@@ -916,7 +941,7 @@ function renderStatus(data) {
   }
 
   if (data.downloadReady && data.downloadUrl) {
-    zipSizeEl.textContent = data.zipSizeText || data.downloadName || 'ready';
+    setDashValue(zipSizeEl, data.zipSizeText || data.downloadName || 'ready');
   }
 
   const summary = deriveErrorSummary(data);
@@ -940,28 +965,71 @@ function renderErrorSummary(summary) {
 
   if (!summary || summary.total === 0) {
     errorSummaryGrid.innerHTML = '<div class="summary-empty">No error summary yet.</div>';
-    errorSummaryHelp.textContent = 'This will summarize what failed in the latest run.';
+    if (errorSummaryHelp) errorSummaryHelp.textContent = 'This will summarize what failed in the latest run.';
     return;
   }
 
   const items = [
-    ['403 / Forbidden', summary.forbidden || 0],
-    ['Timeout', summary.timeout || 0],
-    ['404 / Not found', summary.notFound || 0],
-    ['Non-image', summary.nonImage || 0],
-    ['Other', summary.other || 0],
+    {
+      label: 'Forbidden',
+      value: summary.forbidden || 0,
+      type: 'forbidden',
+      severity: 'warning',
+      tip: 'The image host denied access. A referer or browser fallback can help.',
+    },
+    {
+      label: 'Unauthorized',
+      value: summary.unauthorized || 0,
+      type: 'unauthorized',
+      severity: 'warning',
+      tip: 'The image URL requires authentication, a token, or a signed link.',
+    },
+    {
+      label: 'Timeout',
+      value: summary.timeout || 0,
+      type: 'timeout',
+      severity: 'info',
+      tip: 'The remote server did not respond before the request timeout.',
+    },
+    {
+      label: 'Not found',
+      value: summary.notFound || 0,
+      type: 'notfound',
+      severity: 'critical',
+      tip: 'The URL returned a missing image response.',
+    },
+    {
+      label: 'Non-image',
+      value: summary.nonImage || 0,
+      type: 'nonimage',
+      severity: 'warning',
+      tip: 'The URL returned HTML or another unsupported response instead of an image.',
+    },
+    {
+      label: 'Other',
+      value: summary.other || 0,
+      type: 'other',
+      severity: 'neutral',
+      tip: 'The failure did not match a known category.',
+    },
   ];
 
   errorSummaryGrid.innerHTML = items
-    .map(([label, value]) => `
-      <div class="summary-card">
-        <span class="summary-kind">${escapeHtml(label)}</span>
-        <span class="summary-value" data-count="${Number(value || 0)}">0</span>
+    .map(({ label, value, type, severity, tip }) => `
+      <div class="summary-card summary-card-${type} summary-severity-${severity}">
+        <div class="summary-card-top">
+          <span class="summary-kind">${escapeHtml(label)}</span>
+          <span class="summary-icon" aria-hidden="true"></span>
+        </div>
+        <div class="summary-card-bottom">
+          <span class="summary-value" data-count="${Number(value || 0)}">0</span>
+          <span class="summary-tooltip" tabindex="0" aria-label="${escapeHtml(tip)}" data-tip="${escapeHtml(tip)}">?</span>
+        </div>
       </div>
     `)
     .join('');
 
-  errorSummaryHelp.textContent = `Detected ${summary.total} failed items in the latest run.`;
+  if (errorSummaryHelp) errorSummaryHelp.textContent = `Detected ${summary.total} failed items in the latest run.`;
 
   errorSummaryGrid.querySelectorAll('.summary-value').forEach((el) => {
     animateCount(el, Number(el.dataset.count || 0));
@@ -1271,34 +1339,104 @@ function renderTimeline(phase, currentText) {
   if (!dashboardRefs.timeline) return;
 
   const phaseOrder = {
-    idle: 0,
+    idle: -1,
     upload: 0,
     read: 1,
-    detect: 2,
-    download: 3,
-    normalize: 4,
-    zip: 5,
-    done: 7,
-    error: -1,
+    detect: 1,
+    download: 2,
+    normalize: 3,
+    zip: 4,
+    done: TIMELINE_STEPS.length,
+    error: 2,
   };
 
   const active = phaseOrder[phase] ?? 0;
+  const maxConnectorIndex = Math.max(1, TIMELINE_STEPS.length - 1);
+  const connectorIndex = phase === 'done'
+    ? maxConnectorIndex
+    : Math.max(0, Math.min(active, maxConnectorIndex));
+  const connectorProgress = active < 0 ? 0 : Math.round((connectorIndex / maxConnectorIndex) * 100);
+  dashboardRefs.timeline.style.setProperty('--step-count', String(TIMELINE_STEPS.length));
+  dashboardRefs.timeline.style.setProperty('--timeline-progress', `${connectorProgress}%`);
+  dashboardRefs.timeline.dataset.phase = phase;
+  updatePipelineStatus(phase, active, currentText);
 
   dashboardRefs.timeline.innerHTML = TIMELINE_STEPS.map((step, idx) => {
-    const done = active > idx;
-    const isActive = active === idx;
-    const isError = phase === 'error' && idx >= 3 && idx <= 6;
+    const done = active > idx || phase === 'done';
+    const isActive = active === idx && phase !== 'done' && phase !== 'idle' && phase !== 'error';
+    const isError = phase === 'error' && idx >= active;
+    const detail = isActive && currentText ? currentText : done ? 'Complete' : step.detail;
     return `
       <div class="timeline-step ${done ? 'is-done' : ''} ${isActive ? 'is-active' : ''} ${isError ? 'is-error' : ''}">
-        <div class="dot"></div>
-        <div>
-          <div class="label">${escapeHtml(step.label)}</div>
-          <div class="detail">${escapeHtml(step.detail)}</div>
-        </div>
-        <div class="detail">${isActive && currentText ? escapeHtml(currentText) : done ? 'Complete' : ''}</div>
+        <div class="dot" aria-hidden="true"></div>
+        <div class="label">${escapeHtml(step.label)}</div>
+        <div class="detail">${escapeHtml(detail)}</div>
       </div>
     `;
   }).join('');
+}
+
+function updatePipelineStatus(phase, active, currentText) {
+  const steps = dashboardRefs.pipelineSteps || [];
+  const cardEl = dashboardRefs.pipelineCard;
+  const indicatorEl = dashboardRefs.pipelineIndicator;
+  const labelEl = dashboardRefs.pipelineLabel;
+  const statusEl = dashboardRefs.pipelineStatus;
+  const copyEl = dashboardRefs.pipelineCopy;
+  let state = {
+    key: 'ready',
+    label: 'Ready',
+    copy: 'Upload a catalog to begin processing.',
+  };
+
+  if (phase === 'done') {
+    state = {
+      key: 'finished',
+      label: 'Finished',
+      copy: 'ZIP archive is ready to download.',
+    };
+  } else if (phase === 'error') {
+    state = {
+      key: 'error',
+      label: 'Error',
+      copy: currentText || 'Processing stopped before completion.',
+    };
+  } else if (phase === 'download') {
+    state = {
+      key: 'downloading',
+      label: 'Downloading',
+      copy: currentText || 'Downloading merchant images.',
+    };
+  } else if (active >= 0) {
+    state = {
+      key: 'processing',
+      label: 'Processing',
+      copy: currentText || 'Processing the active catalog.',
+    };
+  }
+
+  if (cardEl) cardEl.dataset.status = state.key;
+  if (indicatorEl) indicatorEl.dataset.status = state.key;
+  if (labelEl) labelEl.textContent = state.label;
+
+  if (statusEl) {
+    statusEl.textContent = state.label;
+  }
+
+  if (copyEl) {
+    copyEl.textContent = state.copy;
+  }
+
+  steps.forEach((el, idx) => {
+    const stepKey = el.dataset.pipelineStep;
+    const stepIndex = PIPELINE_STEPS.indexOf(stepKey);
+    const done = phase === 'done' || active > stepIndex;
+    const isActive = active === stepIndex && phase !== 'done' && phase !== 'idle' && phase !== 'error';
+    const isError = phase === 'error' && idx >= Math.max(0, active);
+    el.classList.toggle('is-done', done);
+    el.classList.toggle('is-active', isActive);
+    el.classList.toggle('is-error', isError);
+  });
 }
 
 function computeMetrics(data) {
@@ -1395,6 +1533,10 @@ function animateCount(el, target) {
   if (!el) return;
   const finalValue = Number.isFinite(target) ? target : 0;
   const start = Number(String(el.textContent || '0').replace(/[^\d.-]/g, '')) || 0;
+
+  el.classList.remove('metric-up');
+  void el.offsetWidth;
+  el.classList.add('metric-up');
 
   if (Math.abs(finalValue - start) < 1) {
     el.textContent = String(Math.round(finalValue));
