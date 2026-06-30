@@ -56,6 +56,18 @@ const reportBody = document.getElementById('reportBody');
 const reportDownloadBtn = document.getElementById('reportDownloadBtn');
 const closeReportBtn = document.getElementById('closeReportBtn');
 const closeReportFooterBtn = document.getElementById('closeReportFooterBtn');
+const quickUploadBtn = document.getElementById('quickUploadBtn');
+const quickLatestZipBtn = document.getElementById('quickLatestZipBtn');
+const quickHistoryBtn = document.getElementById('quickHistoryBtn');
+const quickSettingsBtn = document.getElementById('quickSettingsBtn');
+const opsSystemBadge = document.getElementById('opsSystemBadge');
+const opsSystemStatus = document.getElementById('opsSystemStatus');
+const opsStatusValue = document.getElementById('opsStatusValue');
+const opsLastBatch = document.getElementById('opsLastBatch');
+const opsAverageSpeed = document.getElementById('opsAverageSpeed');
+const opsSuccessRate = document.getElementById('opsSuccessRate');
+const opsDownloadsToday = document.getElementById('opsDownloadsToday');
+const nextStepText = document.getElementById('nextStepText');
 
 const SETTINGS_KEY = 'piccatch-settings';
 const THEME_KEY = 'piccatch-theme';
@@ -95,6 +107,14 @@ const TIMELINE_STEPS = [
 
 const PIPELINE_STEPS = TIMELINE_STEPS.map((step) => step.key);
 
+const OPERATIONS_STATES = {
+  ready: { label: 'Ready', next: 'Next: upload workbook' },
+  processing: { label: 'Processing', next: 'Processing active batch' },
+  downloading: { label: 'Downloading', next: 'Downloading images' },
+  finished: { label: 'Finished', next: 'Next: download ZIP' },
+  error: { label: 'Error', next: 'Review error summary' },
+};
+
 let selectedFile = null;
 let parsedRows = [];
 let originalRows = [];
@@ -112,6 +132,7 @@ let smoothedSpeed = 0;
 let dashboardRefs = {};
 let dashboardReady = false;
 let lastHistoryItems = [];
+let currentOperationsState = 'ready';
 
 setupDashboardShell();
 
@@ -141,6 +162,7 @@ updateDashboardMetrics({
   current: '—',
 });
 renderHistory([]);
+updateOperationsOverview();
 loadHistory({ silent: true });
 
 if (modeBadge) {
@@ -150,8 +172,18 @@ if (modeBadge) {
 }
 
 chooseBtn?.addEventListener('click', () => fileInput.click());
+quickUploadBtn?.addEventListener('click', () => fileInput.click());
 settingsBtn?.addEventListener('click', openSettings);
+quickSettingsBtn?.addEventListener('click', openSettings);
 themeBtn?.addEventListener('click', toggleTheme);
+quickHistoryBtn?.addEventListener('click', () => {
+  document.getElementById('historyCard')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+});
+quickLatestZipBtn?.addEventListener('click', (e) => {
+  if (quickLatestZipBtn.getAttribute('aria-disabled') === 'true') {
+    e.preventDefault();
+  }
+});
 
 dropzone?.addEventListener('click', (e) => {
   const interactive = e.target.closest('button, input, select, textarea, label, summary, a');
@@ -326,6 +358,7 @@ function setSelectedFile(file) {
   setStatus('File selected. Ready to start.', 'info');
   runBtn.disabled = false;
   runBtn.textContent = 'Create ZIP';
+  updateNextStepText();
 }
 
 function openSettings() {
@@ -365,6 +398,106 @@ function closeReport() {
   if (settingsModal?.hidden !== false && successScreen?.hidden !== false) {
     document.body.style.overflow = '';
   }
+}
+
+function setOperationsState(stateKey = 'ready') {
+  const normalized = OPERATIONS_STATES[stateKey] ? stateKey : 'ready';
+  const state = OPERATIONS_STATES[normalized];
+  currentOperationsState = normalized;
+
+  if (opsSystemBadge) opsSystemBadge.dataset.status = normalized;
+  if (opsSystemStatus) opsSystemStatus.textContent = state.label;
+  if (opsStatusValue) opsStatusValue.textContent = state.label;
+  updateNextStepText();
+}
+
+function updateNextStepText() {
+  if (!nextStepText) return;
+
+  if (currentOperationsState === 'ready' && selectedFile) {
+    nextStepText.textContent = 'Next: create ZIP';
+    return;
+  }
+
+  nextStepText.textContent = OPERATIONS_STATES[currentOperationsState]?.next || OPERATIONS_STATES.ready.next;
+}
+
+function updateOperationsOverview({ speed, ready, failed, total } = {}) {
+  updateOperationsHistoryStats();
+  updateLatestZipAction();
+
+  if (opsAverageSpeed && typeof speed === 'number') {
+    opsAverageSpeed.textContent = speed > 0 ? `${formatNumber(speed, 1)} img/s` : '--';
+  }
+
+  const denominator = Number(total || 0) || Number(ready || 0) + Number(failed || 0);
+  if (opsSuccessRate && denominator > 0) {
+    const rate = (Number(ready || 0) / denominator) * 100;
+    opsSuccessRate.textContent = `${formatNumber(rate, 1)}%`;
+  }
+}
+
+function updateOperationsHistoryStats() {
+  const completed = lastHistoryItems.find((item) => String(item.status || '').toLowerCase() === 'done' && item.finishedAt);
+
+  if (opsLastBatch) {
+    opsLastBatch.textContent = completed ? formatOperationsDate(completed.finishedAt) : 'Not available';
+  }
+
+  if (opsSuccessRate && lastHistoryItems.length && opsSuccessRate.textContent === '--') {
+    const latestWithCounts = lastHistoryItems.find((item) => Number(item.ready || 0) + Number(item.failed || 0) > 0);
+    if (latestWithCounts) {
+      const ready = Number(latestWithCounts.ready || 0);
+      const failed = Number(latestWithCounts.failed || 0);
+      opsSuccessRate.textContent = `${formatNumber((ready / (ready + failed)) * 100, 1)}%`;
+    }
+  }
+
+  if (opsDownloadsToday) {
+    const todayCount = lastHistoryItems.reduce((sum, item) => {
+      if (!item.finishedAt || String(item.status || '').toLowerCase() !== 'done') return sum;
+      return isToday(item.finishedAt) ? sum + Number(item.ready || 0) : sum;
+    }, 0);
+    opsDownloadsToday.textContent = lastHistoryItems.length ? `${todayCount.toLocaleString()} images` : '--';
+  }
+}
+
+function updateLatestZipAction() {
+  if (!quickLatestZipBtn) return;
+
+  const latest = lastStatusSnapshot?.downloadReady && lastStatusSnapshot?.downloadUrl
+    ? lastStatusSnapshot
+    : lastHistoryItems.find((item) => item.downloadReady && item.downloadUrl);
+  const url = latest?.downloadUrl;
+
+  if (url) {
+    quickLatestZipBtn.href = url;
+    quickLatestZipBtn.classList.remove('is-disabled');
+    quickLatestZipBtn.setAttribute('aria-disabled', 'false');
+    quickLatestZipBtn.tabIndex = 0;
+    return;
+  }
+
+  quickLatestZipBtn.href = '#';
+  quickLatestZipBtn.classList.add('is-disabled');
+  quickLatestZipBtn.setAttribute('aria-disabled', 'true');
+  quickLatestZipBtn.tabIndex = -1;
+}
+
+function isToday(ts) {
+  const date = new Date(Number(ts || 0));
+  if (!Number.isFinite(date.getTime())) return false;
+  const now = new Date();
+  return date.getFullYear() === now.getFullYear()
+    && date.getMonth() === now.getMonth()
+    && date.getDate() === now.getDate();
+}
+
+function formatOperationsDate(ts) {
+  const value = Number(ts || 0);
+  if (!Number.isFinite(value) || value <= 0) return 'Not available';
+  const time = formatClockTime(value);
+  return isToday(value) ? `Today ${time}` : formatHistoryDate(value);
 }
 
 function toggleTheme() {
@@ -634,6 +767,7 @@ async function startUpload() {
   retryFailedBtn.disabled = true;
   successRetryBtn.style.display = 'none';
   setProcessingState(true, 'Processing...');
+  setOperationsState('processing');
 
   updateTimelineFromPhase('upload', 'Uploading workbook...');
   saveCurrentSettings();
@@ -791,6 +925,7 @@ function renderHistory(items) {
 
   if (!count) {
     historyList.innerHTML = '<div class="history-empty">No processing runs yet.</div>';
+    updateOperationsOverview();
     return;
   }
 
@@ -814,6 +949,7 @@ function renderHistory(items) {
       </table>
     </div>
   `;
+  updateOperationsOverview();
 }
 
 function renderHistoryItem(item) {
@@ -915,6 +1051,12 @@ function renderStatus(data) {
     eta: metrics.etaText,
     progress,
     stage: data.status,
+  });
+  updateOperationsOverview({
+    speed: metrics.speed,
+    ready: Number(data.ready || 0),
+    failed: Number(data.failed || 0),
+    total,
   });
 
   if (startedAt && progress > 0 && progress < 100) {
@@ -1418,6 +1560,7 @@ function updatePipelineStatus(phase, active, currentText) {
   if (cardEl) cardEl.dataset.status = state.key;
   if (indicatorEl) indicatorEl.dataset.status = state.key;
   if (labelEl) labelEl.textContent = state.label;
+  setOperationsState(state.key);
 
   if (statusEl) {
     statusEl.textContent = state.label;
@@ -1444,7 +1587,7 @@ function computeMetrics(data) {
   const total = Number(data?.total || 0);
   const done = Number(data?.done || 0);
   const progress = Number(data?.progress || 0);
-  const elapsedMs = startedAt ? Math.max(1, now - startedAt) : 1;
+  const elapsedMs = startedAt ? Math.max(1, now - startedAt) : 0;
 
   const sample = { t: now, done };
   let instantSpeed = 0;
@@ -1463,9 +1606,9 @@ function computeMetrics(data) {
     smoothedSpeed = smoothedSpeed ? (smoothedSpeed * 0.68 + instantSpeed * 0.32) : instantSpeed;
   }
 
-  const averageSpeed = done > 0 ? done / (elapsedMs / 1000) : 0;
+  const averageSpeed = startedAt && done > 0 ? done / (elapsedMs / 1000) : 0;
   const speed = Number.isFinite(smoothedSpeed) && smoothedSpeed > 0 ? smoothedSpeed : averageSpeed;
-  const avgMs = done > 0 ? elapsedMs / done : 0;
+  const avgMs = startedAt && done > 0 ? elapsedMs / done : 0;
   const remainingSec = speed > 0 ? Math.max(0, (total - done) / speed) : 0;
   const etaTextValue = progress >= 100 ? 'Done' : remainingSec > 0 ? formatDuration(remainingSec) : '—';
 

@@ -39,13 +39,64 @@
       </div>
     </header>
 
-    <section class="hero">
-      <div class="hero-copy-wrap">
-        <div class="eyebrow">Merchant media pipeline</div>
-        <h1>Clean catalog image batches, fast.</h1>
-        <p class="hero-copy">
-          Upload a merchant workbook, validate the detected columns, and export a normalized ZIP with a clear processing report.
-        </p>
+    <section class="hero app-header" aria-labelledby="appTitle">
+      <div class="hero-copy-wrap app-header-grid">
+        <div class="app-header-copy">
+          <div class="eyebrow">Internal operations</div>
+          <h1 id="appTitle">PicCatch</h1>
+          <p class="app-kicker">Merchant Image Processing</p>
+          <p class="hero-copy">Upload an Excel workbook to download, normalize and package merchant images.</p>
+          <div class="next-step-pill">
+            <span class="next-step-dot" aria-hidden="true"></span>
+            <span id="nextStepText">Next: upload workbook</span>
+          </div>
+        </div>
+
+        <div class="operations-card" aria-label="Operations overview">
+          <div class="operations-head">
+            <div>
+              <div class="status-card-title">Operations Overview</div>
+            </div>
+            <div id="opsSystemBadge" class="ops-status-badge" data-status="ready">
+              <span class="ops-status-dot" aria-hidden="true"></span>
+              <span id="opsSystemStatus">Ready</span>
+            </div>
+          </div>
+
+          <div class="ops-grid">
+            <div class="ops-item ops-item-primary">
+              <span>System Status</span>
+              <strong id="opsStatusValue">Ready</strong>
+            </div>
+            <div class="ops-item">
+              <span>Last completed batch</span>
+              <strong id="opsLastBatch">Not available</strong>
+            </div>
+            <div class="ops-item">
+              <span>Average processing speed</span>
+              <strong id="opsAverageSpeed">--</strong>
+            </div>
+            <div class="ops-item">
+              <span>Success rate</span>
+              <strong id="opsSuccessRate">--</strong>
+            </div>
+            <div class="ops-item">
+              <span>Current server</span>
+              <strong id="opsServerStatus">Online</strong>
+            </div>
+            <div class="ops-item">
+              <span>Downloads today</span>
+              <strong id="opsDownloadsToday">--</strong>
+            </div>
+          </div>
+
+          <div class="quick-actions" aria-label="Quick actions">
+            <button id="quickUploadBtn" class="quick-action" type="button">Upload workbook</button>
+            <a id="quickLatestZipBtn" class="quick-action is-disabled" href="#" aria-disabled="true" tabindex="-1">Open latest ZIP</a>
+            <button id="quickHistoryBtn" class="quick-action" type="button">Session history</button>
+            <button id="quickSettingsBtn" class="quick-action" type="button">Settings</button>
+          </div>
+        </div>
       </div>
     </section>
 
