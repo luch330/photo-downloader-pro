@@ -46,7 +46,7 @@ test('failed image download does not stop batch processing', async () => {
       ['Valid 4', `${imageBase}/image-4.png`],
     ];
 
-    const startRes = await fetch(`${baseUrl}/api/start`, {
+    const startRes = await requestJson(`${baseUrl}/api/start`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -62,9 +62,9 @@ test('failed image download does not stop batch processing', async () => {
         },
       }),
     });
-    const start = await startRes.json();
+    const start = startRes.body;
 
-    assert.equal(startRes.status, 200);
+    assert.equal(startRes.statusCode, 200);
     assert.equal(start.ok, true);
     assert.ok(start.jobId);
 
@@ -81,12 +81,12 @@ test('failed image download does not stop batch processing', async () => {
     assert.equal(status.errorSummary.total, 1);
     assert.match(status.failedCsv, /Invalid/);
 
-    const downloadRes = await fetch(`${baseUrl}${status.downloadUrl}`);
-    const zipBuffer = Buffer.from(await downloadRes.arrayBuffer());
+    const downloadRes = await requestBuffer(`${baseUrl}${status.downloadUrl}`);
+    const zipBuffer = downloadRes.body;
     const zipEntries = listZipEntries(zipBuffer);
     const imageEntries = zipEntries.filter((entry) => !['report.txt', 'failed_rows.csv'].includes(entry));
 
-    assert.equal(downloadRes.status, 200);
+    assert.equal(downloadRes.statusCode, 200);
     assert.equal(zipBuffer.subarray(0, 2).toString('ascii'), 'PK');
     assert.equal(imageEntries.length, 4);
     assert.ok(zipEntries.includes('report.txt'));
@@ -144,9 +144,8 @@ async function waitForHealth(baseUrl, appProcess) {
     }
 
     try {
-      const res = await fetch(`${baseUrl}/health`);
-      const body = await res.json();
-      if (res.ok && body.ok) return;
+      const res = await requestJson(`${baseUrl}/health`);
+      if (res.statusCode >= 200 && res.statusCode < 300 && res.body.ok) return;
     } catch {
       // server is still starting
     }
@@ -162,8 +161,8 @@ async function waitForJobDone(baseUrl, jobId) {
   let lastStatus = null;
 
   while (Date.now() - startedAt < 20000) {
-    const res = await fetch(`${baseUrl}/api/status/${jobId}`, { cache: 'no-store' });
-    lastStatus = await res.json();
+    const res = await requestJson(`${baseUrl}/api/status/${jobId}`);
+    lastStatus = res.body;
 
     if (lastStatus.status === 'done') return lastStatus;
     if (lastStatus.status === 'error') {
@@ -214,6 +213,11 @@ function closeServer(server) {
       if (err) reject(err);
       else resolve();
     });
+    server.closeIdleConnections?.();
+    const forceCloseTimer = setTimeout(() => {
+      server.closeAllConnections?.();
+    }, 250);
+    forceCloseTimer.unref?.();
   });
 }
 
@@ -225,12 +229,64 @@ function stopProcess(child, output) {
       child.kill('SIGKILL');
       reject(new Error(`server did not stop cleanly:\n${output}`));
     }, 5000);
+    timer.unref?.();
 
     child.once('exit', () => {
       clearTimeout(timer);
       resolve();
     });
     child.kill('SIGTERM');
+  });
+}
+
+function requestJson(url, options = {}) {
+  return requestRaw(url, options).then((response) => ({
+    ...response,
+    body: response.body.length ? JSON.parse(response.body.toString('utf8')) : null,
+  }));
+}
+
+function requestBuffer(url, options = {}) {
+  return requestRaw(url, options);
+}
+
+function requestRaw(url, options = {}) {
+  const target = new URL(url);
+  const body = options.body ? Buffer.from(options.body) : null;
+
+  return new Promise((resolve, reject) => {
+    const req = http.request({
+      protocol: target.protocol,
+      hostname: target.hostname,
+      port: target.port,
+      path: `${target.pathname}${target.search}`,
+      method: options.method || 'GET',
+      agent: false,
+      timeout: options.timeoutMs || 10000,
+      headers: {
+        Connection: 'close',
+        ...(options.headers || {}),
+        ...(body ? { 'Content-Length': body.length } : {}),
+      },
+    }, (res) => {
+      const chunks = [];
+      res.on('data', (chunk) => chunks.push(chunk));
+      res.on('end', () => {
+        resolve({
+          statusCode: res.statusCode || 0,
+          headers: res.headers,
+          body: Buffer.concat(chunks),
+        });
+      });
+    });
+
+    req.on('timeout', () => {
+      req.destroy(new Error(`request timed out: ${options.method || 'GET'} ${url}`));
+    });
+    req.on('error', reject);
+
+    if (body) req.write(body);
+    req.end();
   });
 }
 
