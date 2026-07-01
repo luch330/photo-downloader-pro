@@ -38,6 +38,7 @@ const DEFAULT_SETTINGS = {
   retries: 2,
   concurrency: 4,
   browserFallback: true,
+  htmlImageDiscovery: false,
   maxSide: 3000,
   quality: 92,
 };
@@ -144,6 +145,7 @@ app.post('/api/start', async (req, res) => {
       retries: clampInt(body?.settings?.retries, 0, 5, DEFAULT_SETTINGS.retries),
       concurrency: clampInt(body?.settings?.concurrency, 1, 10, DEFAULT_SETTINGS.concurrency),
       browserFallback: body?.settings?.browserFallback === false ? false : true,
+      htmlImageDiscovery: body?.settings?.htmlImageDiscovery === true,
       maxSide: clampInt(body?.settings?.maxSide, 256, 8000, DEFAULT_SETTINGS.maxSide),
       quality: clampInt(body?.settings?.quality, 50, 100, DEFAULT_SETTINGS.quality),
     };
@@ -620,7 +622,7 @@ async function processJob(jobId) {
   reportLines.push(`Rows (excluding header): ${dataRows.length}`);
   reportLines.push(`Referer: ${job.referer || '(none)'}`);
   reportLines.push(
-    `Settings: timeout=${job.settings.timeoutMs}ms, retries=${job.settings.retries}, concurrency=${job.settings.concurrency}, browserFallback=${job.settings.browserFallback ? 'on' : 'off'}, maxSide=${job.settings.maxSide}, quality=${job.settings.quality}`
+    `Settings: timeout=${job.settings.timeoutMs}ms, retries=${job.settings.retries}, concurrency=${job.settings.concurrency}, browserFallback=${job.settings.browserFallback ? 'on' : 'off'}, htmlImageDiscovery=${job.settings.htmlImageDiscovery ? 'on' : 'off'}, maxSide=${job.settings.maxSide}, quality=${job.settings.quality}`
   );
   reportLines.push('');
   reportLines.push('Header row skipped automatically.');
@@ -731,6 +733,7 @@ async function processJob(jobId) {
         timeoutMs: job.settings.timeoutMs,
         retries: job.settings.retries,
         browserFallback: job.settings.browserFallback,
+        htmlImageDiscovery: job.settings.htmlImageDiscovery,
         maxSide: job.settings.maxSide,
         quality: job.settings.quality,
       });

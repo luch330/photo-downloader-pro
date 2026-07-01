@@ -7,6 +7,7 @@ const timeoutInput = document.getElementById('timeoutInput');
 const retryInput = document.getElementById('retryInput');
 const concurrencyInput = document.getElementById('concurrencyInput');
 const browserFallbackInput = document.getElementById('browserFallbackInput');
+const htmlDiscoveryInput = document.getElementById('htmlDiscoveryInput');
 const fileNameEl = document.getElementById('fileName');
 const rowsCountEl = document.getElementById('rowsCount');
 const okCountEl = document.getElementById('okCount');
@@ -80,6 +81,7 @@ const MODE_PRESETS = {
     retryInput: '1',
     concurrencyInput: '8',
     browserFallbackInput: true,
+    htmlDiscoveryInput: false,
   },
   balanced: {
     label: 'Balanced',
@@ -87,6 +89,7 @@ const MODE_PRESETS = {
     retryInput: '2',
     concurrencyInput: '4',
     browserFallbackInput: true,
+    htmlDiscoveryInput: false,
   },
   safe: {
     label: 'Safe',
@@ -94,6 +97,7 @@ const MODE_PRESETS = {
     retryInput: '3',
     concurrencyInput: '2',
     browserFallbackInput: true,
+    htmlDiscoveryInput: false,
   },
 };
 
@@ -276,6 +280,7 @@ modeCards.forEach((btn) => {
   retryInput,
   concurrencyInput,
   browserFallbackInput,
+  htmlDiscoveryInput,
 ].forEach((el) => {
   el.addEventListener('change', () => {
     refreshModeFromInputs(true);
@@ -550,6 +555,7 @@ function loadSavedSettings() {
     if (saved.retryInput !== undefined) retryInput.value = saved.retryInput;
     if (saved.concurrencyInput !== undefined) concurrencyInput.value = saved.concurrencyInput;
     if (saved.browserFallbackInput !== undefined) browserFallbackInput.checked = saved.browserFallbackInput;
+    if (saved.htmlDiscoveryInput !== undefined) htmlDiscoveryInput.checked = saved.htmlDiscoveryInput;
     if (saved.mode) currentMode = saved.mode;
   } catch (err) {
     console.warn('Could not load saved settings:', err);
@@ -564,6 +570,7 @@ function saveCurrentSettings() {
       retryInput: retryInput.value,
       concurrencyInput: concurrencyInput.value,
       browserFallbackInput: browserFallbackInput.checked,
+      htmlDiscoveryInput: htmlDiscoveryInput.checked,
       mode: currentMode,
     };
 
@@ -582,6 +589,7 @@ function applyMode(mode, persist = true) {
   retryInput.value = preset.retryInput;
   concurrencyInput.value = preset.concurrencyInput;
   browserFallbackInput.checked = preset.browserFallbackInput;
+  htmlDiscoveryInput.checked = preset.htmlDiscoveryInput;
 
   updateModeUI();
 
@@ -597,7 +605,8 @@ function refreshModeFromInputs(persist = true) {
       String(timeoutInput.value || '') === preset.timeoutInput &&
       String(retryInput.value || '') === preset.retryInput &&
       String(concurrencyInput.value || '') === preset.concurrencyInput &&
-      Boolean(browserFallbackInput.checked) === Boolean(preset.browserFallbackInput)
+      Boolean(browserFallbackInput.checked) === Boolean(preset.browserFallbackInput) &&
+      Boolean(htmlDiscoveryInput.checked) === Boolean(preset.htmlDiscoveryInput)
     );
   });
 
@@ -781,6 +790,7 @@ async function startUpload() {
       retries: Number(retryInput.value || 2),
       concurrency: Number(concurrencyInput.value || 4),
       browserFallback: browserFallbackInput.checked,
+      htmlImageDiscovery: htmlDiscoveryInput.checked,
     },
   };
 

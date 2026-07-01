@@ -5,6 +5,13 @@ const http2 = require('http2');
 const zlib = require('zlib');
 
 const { normalizeImage } = require('./imageProcessor');
+const {
+  discoverMainImageCandidates: discoverIntelligentImageCandidates,
+  selectMainImageCandidate,
+  scoreCandidate: scoreIntelligentImageCandidate,
+} = require('./imageCandidateSelector');
+const { parseSrcsetDetailed } = require('./imageCandidateExtractor');
+const { sharedMerchantLearningEngine } = require('./merchantLearningEngine');
 
 const DEFAULT_TIMEOUT_MS = 45000;
 const DEFAULT_RETRIES = 2;
@@ -163,6 +170,11 @@ async function downloadImage(url, options = {}) {
     quality: clampInt(options.quality, 50, 100, DEFAULT_QUALITY),
     maxBytes: clampInt(options.maxBytes, 1024 * 1024, 512 * 1024 * 1024, DEFAULT_MAX_BYTES),
     browserFallback: Boolean(options.browserFallback),
+    htmlImageDiscovery: Boolean(
+      options.htmlImageDiscovery ||
+        options.htmlMainImageDiscovery ||
+        options.useHtmlMainImageExtraction
+    ),
   };
 
   const diagnostics = createDiagnostics(inputUrl);
@@ -190,6 +202,7 @@ async function downloadImage(url, options = {}) {
         diagnostics,
         timeoutMs: config.timeoutMs,
         maxBytes: config.maxBytes,
+        htmlImageDiscovery: config.htmlImageDiscovery,
       });
 
       const result = await inspectResource(resource, {
@@ -203,6 +216,8 @@ async function downloadImage(url, options = {}) {
         visited,
         depth: 0,
         strategy,
+        htmlImageDiscovery: config.htmlImageDiscovery,
+        learningEngine: options.learningEngine,
       });
 
       if (result) {
@@ -714,11 +729,36 @@ async function inspectResource(resource, context) {
   }
 
   const pageUrl = resource.finalUrl || context.inputUrl;
-  const candidates = extractImageCandidates(htmlText, pageUrl).slice(0, MAX_HTML_CANDIDATES);
+  const learningEngine = context.learningEngine === undefined
+    ? sharedMerchantLearningEngine
+    : context.learningEngine;
+  const selection = context.htmlImageDiscovery
+    ? selectMainImageCandidate(htmlText, pageUrl, {
+        rendered: resource.protocol === 'browser',
+        learningEngine,
+      })
+    : null;
+  const mainCandidates = selection?.candidates || [];
+  const candidates = context.htmlImageDiscovery
+    ? mainCandidates.slice(0, MAX_HTML_CANDIDATES)
+    : extractImageCandidates(htmlText, pageUrl).slice(0, MAX_HTML_CANDIDATES);
   context.diagnostics.htmlRecoveries.push({
     pageUrl,
     status: resource.status,
     candidateCount: candidates.length,
+    mode: context.htmlImageDiscovery ? 'main-image-scoring' : 'legacy',
+    selectedCandidate: context.htmlImageDiscovery && selection?.selected
+      ? {
+          url: selection.selected.url,
+          score: selection.selected.score,
+          source: selection.selected.source,
+          confidence: selection.selected.confidence,
+          confidenceLabel: selection.selected.confidenceLabel,
+          reasons: selection.selected.reasons,
+          learning: selection.selected.learning || null,
+        }
+      : null,
+    rankingDebug: selection?.debug || null,
     preview: htmlText.slice(0, 500),
   });
 
@@ -726,7 +766,8 @@ async function inspectResource(resource, context) {
     return null;
   }
 
-  for (const candidate of candidates) {
+  for (const candidateEntry of candidates) {
+    const candidate = typeof candidateEntry === 'string' ? candidateEntry : candidateEntry?.url;
     if (!candidate || context.visited.has(candidate)) continue;
     context.visited.add(candidate);
 
@@ -739,17 +780,36 @@ async function inspectResource(resource, context) {
           jar: context.jar,
           diagnostics: context.diagnostics,
           timeoutMs: context.timeoutMs,
-          maxBytes: context.maxBytes,
-        });
+            maxBytes: context.maxBytes,
+            htmlImageDiscovery: context.htmlImageDiscovery,
+          });
 
         const result = await inspectResource(next, {
           ...context,
           inputUrl: candidate,
           strategy,
           depth: (context.depth || 0) + 1,
+          htmlImageDiscovery: context.htmlImageDiscovery,
+          learningEngine,
         });
 
-        if (result) return result;
+        if (result) {
+          if (context.htmlImageDiscovery && learningEngine && typeof candidateEntry === 'object') {
+            learningEngine.recordSuccess(pageUrl, candidateEntry, {
+              confidence: candidateEntry.confidence,
+              confidenceLabel: candidateEntry.confidenceLabel,
+            });
+            result.intelligence = {
+              selectedUrl: candidateEntry.url,
+              confidence: candidateEntry.confidence,
+              confidenceLabel: candidateEntry.confidenceLabel,
+              reasons: candidateEntry.reasons || [],
+              learning: candidateEntry.learning || null,
+              attemptedCandidates: candidates.length,
+            };
+          }
+          return result;
+        }
       } catch (err) {
         recordAttempt(context.diagnostics, {
           retryStrategy: strategy.name,
@@ -768,7 +828,7 @@ async function inspectResource(resource, context) {
 }
 
 async function fetchWithBrowser(url, context) {
-  const { strategy, jar, diagnostics, timeoutMs, maxBytes } = context;
+  const { strategy, jar, diagnostics, timeoutMs, maxBytes, htmlImageDiscovery } = context;
   const startedAt = Date.now();
   let chromium;
 
@@ -810,14 +870,27 @@ async function fetchWithBrowser(url, context) {
       throw new Error('browser fallback produced no response');
     }
 
-    const body = await response.body();
+    let body = await response.body();
     if (body.length > maxBytes) {
       throw new Error(`response too large (${formatBytes(body.length)})`);
     }
 
     const headers = normalizeHeaders(response.headers());
     const contentType = firstHeader(headers['content-type']) || '';
-    const bodyText = looksLikeTextResponse(contentType, body) ? decodeText(body) : '';
+    let bodyText = looksLikeTextResponse(contentType, body) ? decodeText(body) : '';
+
+    if (htmlImageDiscovery && looksLikeHtml(contentType, body)) {
+      await page.waitForLoadState('networkidle', { timeout: Math.min(timeoutMs, 5000) }).catch(() => {});
+      const renderedHtml = await page.content().catch(() => '');
+      if (renderedHtml) {
+        const renderedBody = Buffer.from(renderedHtml, 'utf8');
+        if (renderedBody.length <= maxBytes) {
+          body = renderedBody;
+          bodyText = renderedHtml;
+        }
+      }
+    }
+
     const browserCookies = await browserContext.cookies();
     jar.setFromPlaywrightCookies(browserCookies);
 
@@ -963,10 +1036,10 @@ function buildRetryStrategies(inputUrl, config) {
     });
   }
 
-  if (config.browserFallback) {
+  if (config.browserFallback || config.htmlImageDiscovery) {
     base.push({
       kind: 'browser',
-      name: 'Playwright browser fallback',
+      name: config.browserFallback ? 'Playwright browser fallback' : 'Playwright HTML discovery fallback',
       mode: 'document',
       accept: ACCEPT_DOCUMENT,
       referer: providedReferer || sameOriginReferer,
@@ -2162,4 +2235,11 @@ sharedCookieJar = new CookieJar();
 module.exports = {
   downloadImage,
   CookieJar,
+  _test: {
+    discoverMainImageCandidates: discoverIntelligentImageCandidates,
+    extractImageCandidates,
+    parseSrcsetDetailed,
+    scoreMainImageCandidate: scoreIntelligentImageCandidate,
+    selectMainImageCandidate,
+  },
 };

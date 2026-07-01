@@ -2316,7 +2316,16 @@ body.theme-dark .settings-grid input[type="number"] {
   display: flex !important;
   align-items: center;
   gap: 10px;
-  padding-top: 29px;
+  min-height: 44px;
+  align-self: end;
+  padding: 11px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface-solid);
+}
+
+body.theme-dark .checkbox {
+  background: var(--surface-raised);
 }
 
 .checkbox input[type="checkbox"] {
