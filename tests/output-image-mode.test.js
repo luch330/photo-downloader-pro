@@ -66,6 +66,28 @@ test('Resize output image mode keeps the configured 4:3 output aspect ratio', as
   assert.equal(metadata.width * OUTPUT_RESIZE_SIZE.height, metadata.height * OUTPUT_RESIZE_SIZE.width);
 });
 
+test('Resize output image mode frames common product shapes without cropping', async () => {
+  const shapes = [
+    { name: 'bag', canvasWidth: 900, canvasHeight: 1600, productWidth: 520, productHeight: 1180 },
+    { name: 'bottle', canvasWidth: 800, canvasHeight: 1600, productWidth: 300, productHeight: 1200 },
+    { name: 'can', canvasWidth: 1000, canvasHeight: 1500, productWidth: 560, productHeight: 1100 },
+    { name: 'box', canvasWidth: 1400, canvasHeight: 1100, productWidth: 1000, productHeight: 760 },
+    { name: 'jar', canvasWidth: 1200, canvasHeight: 1200, productWidth: 780, productHeight: 900 },
+  ];
+
+  for (const shape of shapes) {
+    const input = await createMarkedProductOnWhiteCanvas(shape);
+    const result = await processOutputImage(input, {
+      outputImageMode: OUTPUT_IMAGE_MODES.RESIZE_2016_1512,
+      contentType: 'image/png',
+    });
+
+    await assertOutputSize(result);
+    const { data, info } = await sharp(result.buffer).raw().toBuffer({ resolveWithObject: true });
+    assertFramedProduct(data, info, shape.name);
+  }
+});
+
 test('Output image mode files can still be written into a ZIP archive', async () => {
   const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'piccatch-output-mode-'));
   try {
@@ -179,6 +201,152 @@ async function createImage(width, height, format) {
   return format === 'png'
     ? image.png().toBuffer()
     : image.jpeg({ quality: 92 }).toBuffer();
+}
+
+async function createMarkedProductOnWhiteCanvas(shape) {
+  const {
+    canvasWidth,
+    canvasHeight,
+    productWidth,
+    productHeight,
+  } = shape;
+  const bandHeight = Math.max(36, Math.round(productHeight * 0.1));
+  const product = await sharp({
+    create: {
+      width: productWidth,
+      height: productHeight,
+      channels: 3,
+      background: { r: 34, g: 154, b: 168 },
+    },
+  })
+    .composite([
+      {
+        input: await createSolidImage(productWidth, bandHeight, { r: 235, g: 38, b: 38 }),
+        left: 0,
+        top: 0,
+      },
+      {
+        input: await createSolidImage(productWidth, bandHeight, { r: 37, g: 99, b: 235 }),
+        left: 0,
+        top: productHeight - bandHeight,
+      },
+    ])
+    .png()
+    .toBuffer();
+
+  return sharp({
+    create: {
+      width: canvasWidth,
+      height: canvasHeight,
+      channels: 3,
+      background: { r: 255, g: 255, b: 255 },
+    },
+  })
+    .composite([
+      {
+        input: product,
+        left: Math.round((canvasWidth - productWidth) / 2),
+        top: Math.round((canvasHeight - productHeight) / 2),
+      },
+    ])
+    .png()
+    .toBuffer();
+}
+
+async function createSolidImage(width, height, background) {
+  return sharp({
+    create: {
+      width,
+      height,
+      channels: 3,
+      background,
+    },
+  })
+    .png()
+    .toBuffer();
+}
+
+function assertFramedProduct(data, info, label) {
+  const bounds = detectNonWhiteBounds(data, info);
+  assert(bounds, `${label}: product bounds should be detected`);
+
+  const productHeightRatio = bounds.height / info.height;
+  assert(
+    productHeightRatio >= 0.74 && productHeightRatio <= 0.81,
+    `${label}: expected product to occupy 74-81% of canvas height, got ${productHeightRatio}`
+  );
+
+  const topMargin = bounds.top;
+  const bottomMargin = info.height - bounds.bottom - 1;
+  const leftMargin = bounds.left;
+  const rightMargin = info.width - bounds.right - 1;
+  assert(Math.abs(topMargin - bottomMargin) <= 14, `${label}: vertical margins should be balanced`);
+  assert(Math.abs(leftMargin - rightMargin) <= 14, `${label}: horizontal margins should be balanced`);
+  assert(topMargin > 80 && bottomMargin > 80, `${label}: vertical padding should be visible`);
+  assert(leftMargin > 40 && rightMargin > 40, `${label}: horizontal padding should be visible`);
+
+  const centerX = Math.round((bounds.left + bounds.right) / 2);
+  const centerY = Math.round((bounds.top + bounds.bottom) / 2);
+  assertColor(pixelAt(data, info, centerX, bounds.top + 18), { red: true }, `${label}: top marker should remain visible`);
+  assertColor(pixelAt(data, info, centerX, bounds.bottom - 18), { blue: true }, `${label}: bottom marker should remain visible`);
+  assertColor(pixelAt(data, info, centerX, Math.max(4, Math.floor(topMargin / 2))), { white: true }, `${label}: top padding should be white`);
+  assertColor(pixelAt(data, info, Math.max(4, Math.floor(leftMargin / 2)), centerY), { white: true }, `${label}: side padding should be white`);
+}
+
+function detectNonWhiteBounds(data, info) {
+  const channels = info.channels || 3;
+  let left = info.width;
+  let right = -1;
+  let top = info.height;
+  let bottom = -1;
+  const thresholdSquared = 26 * 26;
+
+  for (let y = 0; y < info.height; y += 1) {
+    for (let x = 0; x < info.width; x += 1) {
+      const offset = (y * info.width + x) * channels;
+      const dr = 255 - data[offset];
+      const dg = 255 - data[offset + 1];
+      const db = 255 - data[offset + 2];
+      if ((dr * dr + dg * dg + db * db) <= thresholdSquared) continue;
+
+      left = Math.min(left, x);
+      right = Math.max(right, x);
+      top = Math.min(top, y);
+      bottom = Math.max(bottom, y);
+    }
+  }
+
+  if (right < left || bottom < top) return null;
+  return {
+    left,
+    right,
+    top,
+    bottom,
+    width: right - left + 1,
+    height: bottom - top + 1,
+  };
+}
+
+function pixelAt(data, info, x, y) {
+  const channels = info.channels || 3;
+  const offset = (Math.max(0, Math.min(info.height - 1, y)) * info.width + Math.max(0, Math.min(info.width - 1, x))) * channels;
+  return {
+    r: data[offset],
+    g: data[offset + 1],
+    b: data[offset + 2],
+  };
+}
+
+function assertColor(pixel, expectation, message) {
+  if (expectation.red) {
+    assert(pixel.r > 170 && pixel.g < 95 && pixel.b < 95, `${message}: expected red, got ${JSON.stringify(pixel)}`);
+  }
+  if (expectation.blue) {
+    assert(pixel.b > 150 && pixel.r < 110 && pixel.g < 140, `${message}: expected blue, got ${JSON.stringify(pixel)}`);
+  }
+  if (expectation.white) {
+    assert(pixel.r > 235 && pixel.g > 235 && pixel.b > 235, `${message}: expected white, got ${JSON.stringify(pixel)}`);
+  }
 }
 
 function startImageServer(buffer, contentType) {

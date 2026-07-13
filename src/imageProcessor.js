@@ -11,6 +11,18 @@ const OUTPUT_RESIZE_SIZE = Object.freeze({
   height: 1512,
 });
 
+const OUTPUT_RESIZE_BACKGROUND = '#ffffff';
+const OUTPUT_PRODUCT_FRAME = Object.freeze({
+  width: Math.round(OUTPUT_RESIZE_SIZE.width * 0.9),
+  height: Math.round(OUTPUT_RESIZE_SIZE.height * 0.78),
+  left: Math.floor((OUTPUT_RESIZE_SIZE.width - Math.round(OUTPUT_RESIZE_SIZE.width * 0.9)) / 2),
+  right: Math.ceil((OUTPUT_RESIZE_SIZE.width - Math.round(OUTPUT_RESIZE_SIZE.width * 0.9)) / 2),
+  top: Math.floor((OUTPUT_RESIZE_SIZE.height - Math.round(OUTPUT_RESIZE_SIZE.height * 0.78)) / 2),
+  bottom: Math.ceil((OUTPUT_RESIZE_SIZE.height - Math.round(OUTPUT_RESIZE_SIZE.height * 0.78)) / 2),
+});
+const FOREGROUND_DISTANCE_THRESHOLD = 18;
+const FOREGROUND_PADDING_RATIO = 0.01;
+
 let sharp = null;
 try {
   sharp = require('sharp');
@@ -126,22 +138,28 @@ async function resizeTo2016x1512(buffer, options = {}) {
   try {
     const dimensions = await readImageDimensions(input, { contentType, sourceUrl });
     const density = isSvgLike(contentType, sourceUrl, input) ? 300 : 72;
-    const jpegBuffer = await sharp(input, {
+    const prepared = await prepareProductResizeInput(input, { density });
+    const jpegBuffer = await sharp(prepared.buffer, {
       failOnError: false,
-      density,
       limitInputPixels: 16000 * 16000,
       sequentialRead: true,
     })
-      .rotate()
       .resize({
-        width: OUTPUT_RESIZE_SIZE.width,
-        height: OUTPUT_RESIZE_SIZE.height,
-        fit: 'cover',
-        position: sharp.strategy.attention,
+        width: OUTPUT_PRODUCT_FRAME.width,
+        height: OUTPUT_PRODUCT_FRAME.height,
+        fit: 'contain',
+        position: 'center',
+        background: OUTPUT_RESIZE_BACKGROUND,
         kernel: sharp.kernel.lanczos3,
         withoutEnlargement: false,
       })
-      .flatten({ background: '#ffffff' })
+      .extend({
+        top: OUTPUT_PRODUCT_FRAME.top,
+        bottom: OUTPUT_PRODUCT_FRAME.bottom,
+        left: OUTPUT_PRODUCT_FRAME.left,
+        right: OUTPUT_PRODUCT_FRAME.right,
+        background: OUTPUT_RESIZE_BACKGROUND,
+      })
       .withMetadata()
       .jpeg({
         quality: 95,
@@ -164,6 +182,157 @@ async function resizeTo2016x1512(buffer, options = {}) {
   } catch (err) {
     throw new Error(`output resize failed: ${err?.message || err}`);
   }
+}
+
+async function prepareProductResizeInput(input, options = {}) {
+  const base = sharp(input, {
+    failOnError: false,
+    density: options.density || 72,
+    limitInputPixels: 16000 * 16000,
+    sequentialRead: true,
+  })
+    .rotate()
+    .flatten({ background: OUTPUT_RESIZE_BACKGROUND })
+    .toColorspace('srgb');
+
+  const { data, info } = await base.clone().raw().toBuffer({ resolveWithObject: true });
+  const fullBuffer = await base.clone().png().toBuffer();
+  const bounds = detectForegroundBounds(data, info);
+
+  if (!bounds) {
+    return { buffer: fullBuffer, bounds: null };
+  }
+
+  const padding = Math.max(4, Math.round(Math.max(info.width, info.height) * FOREGROUND_PADDING_RATIO));
+  const expanded = expandBounds(bounds, info.width, info.height, padding);
+
+  if (boundsCoverMostImage(expanded, info)) {
+    return { buffer: fullBuffer, bounds: expanded };
+  }
+
+  const width = expanded.right - expanded.left + 1;
+  const height = expanded.bottom - expanded.top + 1;
+  const buffer = await sharp(fullBuffer, {
+    failOnError: false,
+    sequentialRead: true,
+  })
+    .extract({
+      left: expanded.left,
+      top: expanded.top,
+      width,
+      height,
+    })
+    .png()
+    .toBuffer();
+
+  return { buffer, bounds: expanded };
+}
+
+function detectForegroundBounds(data, info) {
+  const width = Number(info.width || 0);
+  const height = Number(info.height || 0);
+  const channels = Number(info.channels || 3);
+  if (!width || !height || !data?.length) return null;
+
+  const background = estimateBackgroundColor(data, info);
+  const rowCounts = new Uint32Array(height);
+  const colCounts = new Uint32Array(width);
+  const thresholdSquared = FOREGROUND_DISTANCE_THRESHOLD * FOREGROUND_DISTANCE_THRESHOLD;
+
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const offset = (y * width + x) * channels;
+      const dr = data[offset] - background.r;
+      const dg = data[offset + 1] - background.g;
+      const db = data[offset + 2] - background.b;
+      if ((dr * dr + dg * dg + db * db) > thresholdSquared) {
+        rowCounts[y] += 1;
+        colCounts[x] += 1;
+      }
+    }
+  }
+
+  const minRowPixels = Math.max(3, Math.floor(width * 0.003));
+  const minColPixels = Math.max(3, Math.floor(height * 0.003));
+  const top = firstIndexAtLeast(rowCounts, minRowPixels);
+  const bottom = lastIndexAtLeast(rowCounts, minRowPixels);
+  const left = firstIndexAtLeast(colCounts, minColPixels);
+  const right = lastIndexAtLeast(colCounts, minColPixels);
+
+  if (top === -1 || bottom === -1 || left === -1 || right === -1 || right <= left || bottom <= top) {
+    return null;
+  }
+
+  return { left, top, right, bottom };
+}
+
+function estimateBackgroundColor(data, info) {
+  const width = Number(info.width || 0);
+  const height = Number(info.height || 0);
+  const channels = Number(info.channels || 3);
+  const sampleSize = Math.max(4, Math.min(24, Math.floor(Math.min(width, height) * 0.04)));
+  const corners = [
+    [0, 0],
+    [Math.max(0, width - sampleSize), 0],
+    [0, Math.max(0, height - sampleSize)],
+    [Math.max(0, width - sampleSize), Math.max(0, height - sampleSize)],
+  ];
+  let r = 0;
+  let g = 0;
+  let b = 0;
+  let count = 0;
+
+  for (const [startX, startY] of corners) {
+    for (let y = startY; y < Math.min(height, startY + sampleSize); y += 1) {
+      for (let x = startX; x < Math.min(width, startX + sampleSize); x += 1) {
+        const offset = (y * width + x) * channels;
+        r += data[offset];
+        g += data[offset + 1];
+        b += data[offset + 2];
+        count += 1;
+      }
+    }
+  }
+
+  if (!count) return { r: 255, g: 255, b: 255 };
+  return {
+    r: Math.round(r / count),
+    g: Math.round(g / count),
+    b: Math.round(b / count),
+  };
+}
+
+function expandBounds(bounds, width, height, padding) {
+  return {
+    left: Math.max(0, bounds.left - padding),
+    top: Math.max(0, bounds.top - padding),
+    right: Math.min(width - 1, bounds.right + padding),
+    bottom: Math.min(height - 1, bounds.bottom + padding),
+  };
+}
+
+function boundsCoverMostImage(bounds, info) {
+  const width = Number(info.width || 0);
+  const height = Number(info.height || 0);
+  if (!width || !height) return true;
+
+  const boundsWidth = bounds.right - bounds.left + 1;
+  const boundsHeight = bounds.bottom - bounds.top + 1;
+  return boundsWidth >= width * 0.97 && boundsHeight >= height * 0.97;
+}
+
+function firstIndexAtLeast(values, minimum) {
+  for (let index = 0; index < values.length; index += 1) {
+    if (values[index] >= minimum) return index;
+  }
+  return -1;
+}
+
+function lastIndexAtLeast(values, minimum) {
+  for (let index = values.length - 1; index >= 0; index -= 1) {
+    if (values[index] >= minimum) return index;
+  }
+  return -1;
 }
 
 function normalizeOutputImageMode(value) {
