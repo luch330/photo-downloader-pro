@@ -93,11 +93,15 @@ async function processOutputImage(buffer, options = {}) {
   const sourceUrl = String(options.sourceUrl || '');
 
   if (mode === OUTPUT_IMAGE_MODES.ORIGINAL) {
+    const dimensions = await readImageDimensions(input, { contentType, sourceUrl });
     return {
       buffer: input,
       contentType: guessContentTypeFromBuffer(input, contentType, sourceUrl),
       method: 'original',
       outputImageMode: OUTPUT_IMAGE_MODES.ORIGINAL,
+      width: dimensions.width,
+      height: dimensions.height,
+      returnedOriginal: true,
     };
   }
 
@@ -120,6 +124,7 @@ async function resizeTo2016x1512(buffer, options = {}) {
   const sourceUrl = String(options.sourceUrl || '');
 
   try {
+    const dimensions = await readImageDimensions(input, { contentType, sourceUrl });
     const density = isSvgLike(contentType, sourceUrl, input) ? 300 : 72;
     const jpegBuffer = await sharp(input, {
       failOnError: false,
@@ -152,6 +157,9 @@ async function resizeTo2016x1512(buffer, options = {}) {
       outputImageMode: OUTPUT_IMAGE_MODES.RESIZE_2016_1512,
       width: OUTPUT_RESIZE_SIZE.width,
       height: OUTPUT_RESIZE_SIZE.height,
+      originalWidth: dimensions.width,
+      originalHeight: dimensions.height,
+      returnedOriginal: false,
     };
   } catch (err) {
     throw new Error(`output resize failed: ${err?.message || err}`);
@@ -174,6 +182,27 @@ function normalizeOutputImageMode(value) {
   }
 
   return OUTPUT_IMAGE_MODES.ORIGINAL;
+}
+
+async function readImageDimensions(buffer, options = {}) {
+  if (!sharp) return { width: null, height: null };
+
+  try {
+    const density = isSvgLike(options.contentType, options.sourceUrl, buffer) ? 300 : 72;
+    const metadata = await sharp(buffer, {
+      failOnError: false,
+      density,
+      limitInputPixels: 16000 * 16000,
+      sequentialRead: true,
+    }).metadata();
+
+    return {
+      width: Number.isFinite(metadata.width) ? metadata.width : null,
+      height: Number.isFinite(metadata.height) ? metadata.height : null,
+    };
+  } catch {
+    return { width: null, height: null };
+  }
 }
 
 function isSvgLike(contentType, sourceUrl, buffer) {
@@ -256,6 +285,7 @@ module.exports = {
   processOutputImage,
   resizeTo2016x1512,
   normalizeOutputImageMode,
+  readImageDimensions,
   OUTPUT_IMAGE_MODES,
   OUTPUT_RESIZE_SIZE,
 };

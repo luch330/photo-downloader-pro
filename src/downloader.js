@@ -168,6 +168,7 @@ async function downloadImage(url, options = {}) {
     retries: clampInt(options.retries, 0, 8, DEFAULT_RETRIES),
     maxSide: clampInt(options.maxSide, 256, 8000, DEFAULT_MAX_SIDE),
     quality: clampInt(options.quality, 50, 100, DEFAULT_QUALITY),
+    preserveOriginal: options.preserveOriginal === true || options.normalizeOutput === false,
     maxBytes: clampInt(options.maxBytes, 1024 * 1024, 512 * 1024 * 1024, DEFAULT_MAX_BYTES),
     browserFallback: Boolean(options.browserFallback),
     htmlImageDiscovery: Boolean(
@@ -213,6 +214,7 @@ async function downloadImage(url, options = {}) {
         maxBytes: config.maxBytes,
         maxSide: config.maxSide,
         quality: config.quality,
+        preserveOriginal: config.preserveOriginal,
         visited,
         depth: 0,
         strategy,
@@ -252,12 +254,14 @@ async function normalizeDataUrl(dataUrl, config, diagnostics) {
     throw new Error(`data url is not a supported image (${decoded.contentType || 'unknown content type'})`);
   }
 
-  const normalized = await normalizeImage(decoded.buffer, {
-    contentType: imageInfo.contentType,
-    sourceUrl: dataUrl,
-    maxSide: config.maxSide,
-    quality: config.quality,
-  });
+  const output = config.preserveOriginal
+    ? { buffer: decoded.buffer, contentType: imageInfo.contentType, method: 'original' }
+    : await normalizeImage(decoded.buffer, {
+        contentType: imageInfo.contentType,
+        sourceUrl: dataUrl,
+        maxSide: config.maxSide,
+        quality: config.quality,
+      });
 
   recordAttempt(diagnostics, {
     retryStrategy: 'data-url',
@@ -272,10 +276,10 @@ async function normalizeDataUrl(dataUrl, config, diagnostics) {
   });
 
   return {
-    buffer: normalized.buffer,
-    contentType: normalized.contentType,
+    buffer: output.buffer,
+    contentType: output.contentType,
     finalUrl: dataUrl,
-    method: `data-url:${normalized.method}`,
+    method: `data-url:${output.method}`,
     diagnostics,
   };
 }
@@ -708,6 +712,15 @@ async function inspectResource(resource, context) {
 
   const imageInfo = detectImage(resource.buffer, resource.contentType, resource.finalUrl);
   if (imageInfo && isUsableImageStatus(resource.status)) {
+    if (context.preserveOriginal) {
+      return {
+        buffer: resource.buffer,
+        contentType: imageInfo.contentType,
+        finalUrl: resource.finalUrl || context.inputUrl,
+        method: `original:${resource.protocol || 'unknown'}:${resource.browser || 'browser'}`,
+      };
+    }
+
     const normalized = await normalizeImage(resource.buffer, {
       contentType: imageInfo.contentType,
       sourceUrl: resource.finalUrl || context.inputUrl,
@@ -933,9 +946,26 @@ function getSharedBrowser(chromium) {
         '--disable-dev-shm-usage',
         '--no-sandbox',
       ],
-    });
+    })
+      .then((browser) => {
+        browser.on?.('disconnected', () => {
+          sharedBrowserPromise = null;
+        });
+        return browser;
+      })
+      .catch((err) => {
+        sharedBrowserPromise = null;
+        throw err;
+      });
   }
-  return sharedBrowserPromise;
+
+  return sharedBrowserPromise.then((browser) => {
+    if (typeof browser.isConnected === 'function' && !browser.isConnected()) {
+      sharedBrowserPromise = null;
+      return getSharedBrowser(chromium);
+    }
+    return browser;
+  });
 }
 
 async function getBrowserRedirectChain(response) {
@@ -2230,10 +2260,42 @@ function normalizePlaywrightSameSite(value) {
   return 'Lax';
 }
 
+async function closeDownloaderResources() {
+  httpAgent.destroy();
+  httpsAgent.destroy();
+
+  for (const session of http2Sessions.values()) {
+    if (session.idleTimer) {
+      clearTimeout(session.idleTimer);
+      session.idleTimer = null;
+    }
+    try {
+      session.client.close();
+    } catch {
+      try {
+        session.client.destroy();
+      } catch {
+        // ignore shutdown races
+      }
+    }
+  }
+  http2Sessions.clear();
+
+  if (sharedBrowserPromise) {
+    const browserPromise = sharedBrowserPromise;
+    sharedBrowserPromise = null;
+    const browser = await browserPromise.catch(() => null);
+    if (browser) {
+      await browser.close().catch(() => {});
+    }
+  }
+}
+
 sharedCookieJar = new CookieJar();
 
 module.exports = {
   downloadImage,
+  closeDownloaderResources,
   CookieJar,
   _test: {
     discoverMainImageCandidates: discoverIntelligentImageCandidates,

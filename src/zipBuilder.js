@@ -61,7 +61,14 @@ async function buildZip({ zipPath, entries = [], reportText = '', failedCsv = ''
       archive.append(failedCsv, { name: 'failed_rows.csv' });
     }
 
-    archive.finalize().catch(fail);
+    try {
+      const finalized = archive.finalize();
+      if (finalized && typeof finalized.catch === 'function') {
+        finalized.catch(fail);
+      }
+    } catch (err) {
+      fail(err);
+    }
   });
 }
 

@@ -9,6 +9,7 @@ const concurrencyInput = document.getElementById('concurrencyInput');
 const browserFallbackInput = document.getElementById('browserFallbackInput');
 const htmlDiscoveryInput = document.getElementById('htmlDiscoveryInput');
 const outputModeInputs = Array.from(document.querySelectorAll('input[name="outputImageMode"]'));
+const outputModeOptions = Array.from(document.querySelectorAll('[data-output-mode-option]'));
 const fileNameEl = document.getElementById('fileName');
 const rowsCountEl = document.getElementById('rowsCount');
 const okCountEl = document.getElementById('okCount');
@@ -290,11 +291,13 @@ modeCards.forEach((btn) => {
   ...outputModeInputs,
 ].filter(Boolean).forEach((el) => {
   el.addEventListener('change', () => {
+    if (el.name === 'outputImageMode') syncOutputModeUI();
     refreshModeFromInputs(true);
     saveCurrentSettings();
   });
 
   el.addEventListener('input', () => {
+    if (el.name === 'outputImageMode') syncOutputModeUI();
     refreshModeFromInputs(true);
     saveCurrentSettings();
   });
@@ -567,6 +570,16 @@ function setOutputImageMode(mode) {
   outputModeInputs.forEach((input) => {
     input.checked = input.value === normalized;
   });
+  syncOutputModeUI();
+}
+
+function syncOutputModeUI() {
+  outputModeOptions.forEach((option) => {
+    const input = option.querySelector('input[name="outputImageMode"]');
+    const selected = Boolean(input?.checked);
+    option.classList.toggle('is-selected', selected);
+    option.setAttribute('aria-checked', selected ? 'true' : 'false');
+  });
 }
 
 function loadSavedSettings() {
@@ -581,8 +594,10 @@ function loadSavedSettings() {
     if (saved.htmlDiscoveryInput !== undefined) htmlDiscoveryInput.checked = saved.htmlDiscoveryInput;
     if (saved.outputImageMode !== undefined) setOutputImageMode(saved.outputImageMode);
     if (saved.mode) currentMode = saved.mode;
+    syncOutputModeUI();
   } catch (err) {
     console.warn('Could not load saved settings:', err);
+    syncOutputModeUI();
   }
 }
 
@@ -784,6 +799,8 @@ function renderPreview(rows) {
 async function startUpload() {
   if (!selectedFile || !parsedRows.length) return;
 
+  clearTimeout(pollTimer);
+  pollTimer = null;
   autoDownloaded = false;
   jobId = null;
   startedAt = Date.now();
@@ -1021,8 +1038,10 @@ function renderHistoryItem(item) {
 
 function renderHistoryError(message) {
   if (!historyList) return;
+  lastHistoryItems = [];
   historyList.innerHTML = `<div class="history-empty history-empty-error">${escapeHtml(message)}</div>`;
   if (historyHelp) historyHelp.textContent = 'History could not be loaded.';
+  updateOperationsOverview();
 }
 
 async function openReport(jobId) {

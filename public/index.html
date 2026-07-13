@@ -386,18 +386,20 @@
           <small>Choose how successful images are written to the ZIP archive.</small>
         </div>
         <div class="output-mode-options" role="radiogroup" aria-labelledby="outputImageModeTitle">
-          <label class="radio-option">
+          <label class="radio-option output-mode-button is-selected" data-output-mode-option>
             <input id="outputModeOriginalInput" type="radio" name="outputImageMode" value="original" checked />
-            <span>
+            <span class="output-mode-indicator" aria-hidden="true"></span>
+            <span class="output-mode-text">
               <strong>Original</strong>
-              <small>Keep the current output behaviour.</small>
+              <small>Return the selected source image unchanged.</small>
             </span>
           </label>
-          <label class="radio-option">
+          <label class="radio-option output-mode-button" data-output-mode-option>
             <input id="outputModeResizeInput" type="radio" name="outputImageMode" value="resize_2016x1512" />
-            <span>
+            <span class="output-mode-indicator" aria-hidden="true"></span>
+            <span class="output-mode-text">
               <strong>Resize to 2016 x 1512</strong>
-              <small>Crop with product-aware Sharp processing.</small>
+              <small>Always export an exact 4:3 JPEG crop.</small>
             </span>
           </label>
         </div>
@@ -451,7 +453,7 @@
       <div class="success-icon" aria-hidden="true">&check;</div>
       <div class="eyebrow">ZIP ready</div>
       <h2 id="successTitle">Batch complete</h2>
-      <p class="success-copy">The archive is ready with normalized images and the processing report packaged together.</p>
+      <p class="success-copy">The archive is ready with processed images and the processing report packaged together.</p>
 
       <div class="success-metrics">
         <div class="metric-card">

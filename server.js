@@ -8,7 +8,7 @@ const compression = require('compression');
 const helmet = require('helmet');
 const morgan = require('morgan');
 
-const { downloadImage } = require('./src/downloader');
+const { downloadImage, closeDownloaderResources } = require('./src/downloader');
 const { buildZip } = require('./src/zipBuilder');
 const {
   processOutputImage,
@@ -460,6 +460,9 @@ function updateJob(id, patch = {}) {
   if (isFinalStatus(nextPatch.status) && !job.finishedAt) {
     nextPatch.finishedAt = updatedAt;
   }
+  if (isFinalStatus(nextPatch.status) && !Object.prototype.hasOwnProperty.call(nextPatch, 'rows')) {
+    nextPatch.rows = [];
+  }
 
   Object.assign(job, nextPatch, {
     updatedAt,
@@ -681,6 +684,7 @@ async function processJob(jobId) {
   });
 
   const zipStats = await fs.stat(zipPath);
+  await cleanupIntermediateFiles(downloaded);
 
   updateJob(jobId, {
     status: 'done',
@@ -741,26 +745,23 @@ async function processJob(jobId) {
         retries: job.settings.retries,
         browserFallback: job.settings.browserFallback,
         htmlImageDiscovery: job.settings.htmlImageDiscovery,
+        preserveOriginal: true,
         maxSide: job.settings.maxSide,
         quality: job.settings.quality,
       });
 
-      let outputBuffer = result.buffer;
-      let outputContentType = result.contentType;
-      let outputMethod = result.method;
+      const output = await processOutputImage(result.buffer, {
+        outputImageMode: job.settings.outputImageMode,
+        contentType: result.contentType,
+        sourceUrl: result.finalUrl || imageUrl,
+      });
+      const outputBuffer = output.buffer;
+      const outputContentType = output.contentType;
+      const resizedOutput = output.outputImageMode === OUTPUT_IMAGE_MODES.RESIZE_2016_1512;
+      const outputMethod = resizedOutput ? `${result.method}+${output.method}` : result.method;
+      const outputLog = formatOutputImageLog(output);
 
-      if (job.settings.outputImageMode === OUTPUT_IMAGE_MODES.RESIZE_2016_1512) {
-        const output = await processOutputImage(result.buffer, {
-          outputImageMode: job.settings.outputImageMode,
-          contentType: result.contentType,
-          sourceUrl: result.finalUrl || imageUrl,
-        });
-        outputBuffer = output.buffer;
-        outputContentType = output.contentType;
-        outputMethod = `${result.method}+${output.method}`;
-      }
-
-      const ext = detectExtension(outputBuffer, outputContentType, result.finalUrl || imageUrl) || 'jpg';
+      const ext = resizedOutput ? 'jpg' : (detectExtension(outputBuffer, outputContentType, result.finalUrl || imageUrl) || 'jpg');
       const safeBase = sanitizeFileName(itemName) || `item_${rowNumber}`;
       const filename = uniqueName(safeBase, ext, usedNames);
       const filePath = path.join(tempDir, filename);
@@ -780,7 +781,7 @@ async function processJob(jobId) {
 
       ready += 1;
       reportLines.push(`OK   | ${rowNumber} | ${itemName} | ${filename} | ${outputMethod} | ${result.finalUrl || imageUrl}`);
-      appendLog(jobId, `OK: ${itemName} -> ${filename} (${outputMethod})`);
+      appendLog(jobId, `OK: ${itemName} -> ${filename} (${outputMethod}; ${outputLog})`);
     } catch (err) {
       failed += 1;
       const error = compactError(err, MAX_REPORT_ERROR_LENGTH);
@@ -900,6 +901,25 @@ function isApiPath(value) {
   return pathName === '/api' || pathName.startsWith('/api/');
 }
 
+async function cleanupIntermediateFiles(entries = []) {
+  const filePaths = Array.from(new Set(
+    entries
+      .map((entry) => entry?.filePath)
+      .filter(Boolean)
+  ));
+  if (!filePaths.length) return;
+
+  const results = await Promise.allSettled(filePaths.map((filePath) => fs.rm(filePath, { force: true })));
+  const failed = results.filter((result) => result.status === 'rejected');
+  if (failed.length) {
+    console.warn({
+      level: 'warn',
+      message: 'Some intermediate image files could not be removed',
+      count: failed.length,
+    });
+  }
+}
+
 async function cleanupExpiredJobs() {
   const now = Date.now();
   const removals = [];
@@ -961,6 +981,23 @@ function truncateText(value, maxLength) {
   return `${text.slice(0, Math.max(0, limit - 1))}…`;
 }
 
+function formatOutputImageLog(output) {
+  if (!output || output.outputImageMode === OUTPUT_IMAGE_MODES.ORIGINAL) {
+    return `output=original${formatDimensions(output?.width, output?.height)}`;
+  }
+
+  const before = formatDimensions(output.originalWidth, output.originalHeight);
+  const after = formatDimensions(output.width, output.height);
+  return `output=resized${before ? ` from ${before.trim()}` : ''}${after ? ` to ${after.trim()}` : ''}`;
+}
+
+function formatDimensions(width, height) {
+  const w = Number(width);
+  const h = Number(height);
+  if (!Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0) return '';
+  return ` ${Math.round(w)}x${Math.round(h)}`;
+}
+
 function clampInt(value, min, max, fallback) {
   const n = Number.parseInt(value, 10);
   if (!Number.isFinite(n)) return fallback;
@@ -999,11 +1036,40 @@ function shutdown(signal) {
   });
 
   clearInterval(cleanupTimer);
-  server.close(async () => {
+
+  let closed = false;
+  const finishShutdown = async () => {
+    if (closed) return;
+    closed = true;
     const removals = Array.from(jobs.values()).map((job) => cleanupJob(job, 'shutdown'));
     await Promise.allSettled(removals);
+    await closeDownloaderResources().catch((err) => {
+      console.error({
+        level: 'error',
+        message: 'Downloader resource cleanup failed',
+        error: String(err?.message || err),
+      });
+    });
     process.exit(0);
+  };
+
+  server.close((err) => {
+    if (err) {
+      console.error({
+        level: 'error',
+        message: 'HTTP server close failed',
+        error: String(err?.message || err),
+      });
+    }
+    finishShutdown().catch(() => process.exit(1));
   });
+
+  server.closeIdleConnections?.();
+
+  const forceCloseTimer = setTimeout(() => {
+    server.closeAllConnections?.();
+  }, 2500);
+  forceCloseTimer.unref?.();
 
   setTimeout(() => process.exit(1), 10000).unref();
 }
