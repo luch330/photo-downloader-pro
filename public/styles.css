@@ -2341,6 +2341,109 @@ body.theme-dark .checkbox {
   font-weight: 650 !important;
 }
 
+.settings-section {
+  margin: 14px 0;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: linear-gradient(135deg, rgba(0, 194, 209, 0.06), rgba(11, 127, 255, 0.04)), var(--surface-solid);
+}
+
+body.theme-dark .settings-section {
+  background: linear-gradient(135deg, rgba(0, 194, 209, 0.08), rgba(11, 127, 255, 0.05)), var(--surface-raised);
+}
+
+.output-mode-section {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.72fr) minmax(0, 1.28fr);
+  gap: 14px;
+  align-items: stretch;
+}
+
+.settings-section-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  justify-content: center;
+  gap: 5px;
+}
+
+.settings-section-title {
+  color: var(--text);
+  font-size: var(--type-md);
+  font-weight: 820;
+  letter-spacing: 0;
+}
+
+.settings-section-copy small,
+.radio-option small {
+  color: var(--text-muted);
+  font-size: var(--type-xs);
+  line-height: 1.45;
+  font-weight: 650;
+}
+
+.output-mode-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.radio-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  min-width: 0;
+  min-height: 76px;
+  padding: 13px;
+  cursor: pointer;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface-solid);
+  transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease, background 160ms ease;
+}
+
+body.theme-dark .radio-option {
+  background: var(--surface-raised);
+}
+
+.radio-option:hover {
+  transform: translateY(-1px);
+  border-color: var(--line-strong);
+  box-shadow: var(--shadow-soft);
+}
+
+.radio-option:has(input:checked) {
+  border-color: rgba(0, 194, 209, 0.58);
+  background: linear-gradient(135deg, var(--brand-soft), rgba(11, 127, 255, 0.06)), var(--surface-solid);
+}
+
+body.theme-dark .radio-option:has(input:checked) {
+  background: linear-gradient(135deg, rgba(0, 194, 209, 0.13), rgba(11, 127, 255, 0.08)), var(--surface-raised);
+}
+
+.radio-option input[type="radio"] {
+  width: 18px;
+  height: 18px;
+  margin-top: 2px;
+  flex: 0 0 auto;
+  accent-color: var(--brand);
+}
+
+.radio-option span {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.radio-option strong {
+  color: var(--text);
+  font-size: var(--type-md);
+  line-height: 1.25;
+  font-weight: 760;
+}
+
 .modal-footer {
   margin-top: 18px;
   padding-top: 16px;
@@ -2596,7 +2699,9 @@ body.theme-dark .metric-card {
 
   .work-grid,
   .settings-grid,
-  .mode-grid {
+  .mode-grid,
+  .output-mode-section,
+  .output-mode-options {
     grid-template-columns: 1fr;
   }
 

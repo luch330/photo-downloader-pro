@@ -380,6 +380,29 @@
         <span id="customModeHint" class="mode-note">Manual edits will switch the mode to Custom automatically.</span>
       </div>
 
+      <section class="settings-section output-mode-section" aria-labelledby="outputImageModeTitle">
+        <div class="settings-section-copy">
+          <span id="outputImageModeTitle" class="settings-section-title">Output Image Mode</span>
+          <small>Choose how successful images are written to the ZIP archive.</small>
+        </div>
+        <div class="output-mode-options" role="radiogroup" aria-labelledby="outputImageModeTitle">
+          <label class="radio-option">
+            <input id="outputModeOriginalInput" type="radio" name="outputImageMode" value="original" checked />
+            <span>
+              <strong>Original</strong>
+              <small>Keep the current output behaviour.</small>
+            </span>
+          </label>
+          <label class="radio-option">
+            <input id="outputModeResizeInput" type="radio" name="outputImageMode" value="resize_2016x1512" />
+            <span>
+              <strong>Resize to 2016 x 1512</strong>
+              <small>Crop with product-aware Sharp processing.</small>
+            </span>
+          </label>
+        </div>
+      </section>
+
       <div class="settings-grid">
         <label>
           <span>Partner page URL</span>

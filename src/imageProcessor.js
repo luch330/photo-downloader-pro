@@ -1,6 +1,16 @@
 const { Buffer } = require('buffer');
 const os = require('os');
 
+const OUTPUT_IMAGE_MODES = Object.freeze({
+  ORIGINAL: 'original',
+  RESIZE_2016_1512: 'resize_2016x1512',
+});
+
+const OUTPUT_RESIZE_SIZE = Object.freeze({
+  width: 2016,
+  height: 1512,
+});
+
 let sharp = null;
 try {
   sharp = require('sharp');
@@ -70,6 +80,100 @@ async function normalizeImage(buffer, options = {}) {
       method: 'original',
     };
   }
+}
+
+async function processOutputImage(buffer, options = {}) {
+  const input = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer || []);
+  if (!input.length) {
+    throw new Error('empty image buffer');
+  }
+
+  const mode = normalizeOutputImageMode(options.outputImageMode);
+  const contentType = String(options.contentType || '');
+  const sourceUrl = String(options.sourceUrl || '');
+
+  if (mode === OUTPUT_IMAGE_MODES.ORIGINAL) {
+    return {
+      buffer: input,
+      contentType: guessContentTypeFromBuffer(input, contentType, sourceUrl),
+      method: 'original',
+      outputImageMode: OUTPUT_IMAGE_MODES.ORIGINAL,
+    };
+  }
+
+  return resizeTo2016x1512(input, {
+    contentType,
+    sourceUrl,
+  });
+}
+
+async function resizeTo2016x1512(buffer, options = {}) {
+  const input = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer || []);
+  if (!input.length) {
+    throw new Error('empty image buffer');
+  }
+  if (!sharp) {
+    throw new Error('Sharp is required for Resize to 2016 x 1512 output mode.');
+  }
+
+  const contentType = String(options.contentType || '');
+  const sourceUrl = String(options.sourceUrl || '');
+
+  try {
+    const density = isSvgLike(contentType, sourceUrl, input) ? 300 : 72;
+    const jpegBuffer = await sharp(input, {
+      failOnError: false,
+      density,
+      limitInputPixels: 16000 * 16000,
+      sequentialRead: true,
+    })
+      .rotate()
+      .resize({
+        width: OUTPUT_RESIZE_SIZE.width,
+        height: OUTPUT_RESIZE_SIZE.height,
+        fit: 'cover',
+        position: sharp.strategy.attention,
+        kernel: sharp.kernel.lanczos3,
+        withoutEnlargement: false,
+      })
+      .flatten({ background: '#ffffff' })
+      .withMetadata()
+      .jpeg({
+        quality: 95,
+        progressive: true,
+        chromaSubsampling: '4:4:4',
+      })
+      .toBuffer();
+
+    return {
+      buffer: jpegBuffer,
+      contentType: 'image/jpeg',
+      method: 'resize-2016x1512',
+      outputImageMode: OUTPUT_IMAGE_MODES.RESIZE_2016_1512,
+      width: OUTPUT_RESIZE_SIZE.width,
+      height: OUTPUT_RESIZE_SIZE.height,
+    };
+  } catch (err) {
+    throw new Error(`output resize failed: ${err?.message || err}`);
+  }
+}
+
+function normalizeOutputImageMode(value) {
+  const normalized = String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, '_');
+
+  if (
+    normalized === OUTPUT_IMAGE_MODES.RESIZE_2016_1512 ||
+    normalized === 'resize_to_2016x1512' ||
+    normalized === 'resize_to_2016_1512' ||
+    normalized === '2016x1512'
+  ) {
+    return OUTPUT_IMAGE_MODES.RESIZE_2016_1512;
+  }
+
+  return OUTPUT_IMAGE_MODES.ORIGINAL;
 }
 
 function isSvgLike(contentType, sourceUrl, buffer) {
@@ -149,4 +253,9 @@ function clampInt(value, min, max, fallback) {
 
 module.exports = {
   normalizeImage,
+  processOutputImage,
+  resizeTo2016x1512,
+  normalizeOutputImageMode,
+  OUTPUT_IMAGE_MODES,
+  OUTPUT_RESIZE_SIZE,
 };

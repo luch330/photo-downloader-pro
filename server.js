@@ -11,6 +11,11 @@ const morgan = require('morgan');
 const { downloadImage } = require('./src/downloader');
 const { buildZip } = require('./src/zipBuilder');
 const {
+  processOutputImage,
+  normalizeOutputImageMode,
+  OUTPUT_IMAGE_MODES,
+} = require('./src/imageProcessor');
+const {
   formatBytes,
   formatDuration,
   sanitizeFileName,
@@ -39,6 +44,7 @@ const DEFAULT_SETTINGS = {
   concurrency: 4,
   browserFallback: true,
   htmlImageDiscovery: false,
+  outputImageMode: OUTPUT_IMAGE_MODES.ORIGINAL,
   maxSide: 3000,
   quality: 92,
 };
@@ -146,6 +152,7 @@ app.post('/api/start', async (req, res) => {
       concurrency: clampInt(body?.settings?.concurrency, 1, 10, DEFAULT_SETTINGS.concurrency),
       browserFallback: body?.settings?.browserFallback === false ? false : true,
       htmlImageDiscovery: body?.settings?.htmlImageDiscovery === true,
+      outputImageMode: normalizeOutputImageMode(body?.settings?.outputImageMode || DEFAULT_SETTINGS.outputImageMode),
       maxSide: clampInt(body?.settings?.maxSide, 256, 8000, DEFAULT_SETTINGS.maxSide),
       quality: clampInt(body?.settings?.quality, 50, 100, DEFAULT_SETTINGS.quality),
     };
@@ -622,7 +629,7 @@ async function processJob(jobId) {
   reportLines.push(`Rows (excluding header): ${dataRows.length}`);
   reportLines.push(`Referer: ${job.referer || '(none)'}`);
   reportLines.push(
-    `Settings: timeout=${job.settings.timeoutMs}ms, retries=${job.settings.retries}, concurrency=${job.settings.concurrency}, browserFallback=${job.settings.browserFallback ? 'on' : 'off'}, htmlImageDiscovery=${job.settings.htmlImageDiscovery ? 'on' : 'off'}, maxSide=${job.settings.maxSide}, quality=${job.settings.quality}`
+    `Settings: timeout=${job.settings.timeoutMs}ms, retries=${job.settings.retries}, concurrency=${job.settings.concurrency}, browserFallback=${job.settings.browserFallback ? 'on' : 'off'}, htmlImageDiscovery=${job.settings.htmlImageDiscovery ? 'on' : 'off'}, outputImageMode=${job.settings.outputImageMode || OUTPUT_IMAGE_MODES.ORIGINAL}, maxSide=${job.settings.maxSide}, quality=${job.settings.quality}`
   );
   reportLines.push('');
   reportLines.push('Header row skipped automatically.');
@@ -738,12 +745,27 @@ async function processJob(jobId) {
         quality: job.settings.quality,
       });
 
-      const ext = detectExtension(result.buffer, result.contentType, result.finalUrl || imageUrl) || 'jpg';
+      let outputBuffer = result.buffer;
+      let outputContentType = result.contentType;
+      let outputMethod = result.method;
+
+      if (job.settings.outputImageMode === OUTPUT_IMAGE_MODES.RESIZE_2016_1512) {
+        const output = await processOutputImage(result.buffer, {
+          outputImageMode: job.settings.outputImageMode,
+          contentType: result.contentType,
+          sourceUrl: result.finalUrl || imageUrl,
+        });
+        outputBuffer = output.buffer;
+        outputContentType = output.contentType;
+        outputMethod = `${result.method}+${output.method}`;
+      }
+
+      const ext = detectExtension(outputBuffer, outputContentType, result.finalUrl || imageUrl) || 'jpg';
       const safeBase = sanitizeFileName(itemName) || `item_${rowNumber}`;
       const filename = uniqueName(safeBase, ext, usedNames);
       const filePath = path.join(tempDir, filename);
 
-      await fs.writeFile(filePath, result.buffer);
+      await fs.writeFile(filePath, outputBuffer);
 
       downloaded.push({
         order: task.index,
@@ -753,12 +775,12 @@ async function processJob(jobId) {
         itemName,
         imageUrl,
         finalUrl: result.finalUrl || imageUrl,
-        method: result.method,
+        method: outputMethod,
       });
 
       ready += 1;
-      reportLines.push(`OK   | ${rowNumber} | ${itemName} | ${filename} | ${result.method} | ${result.finalUrl || imageUrl}`);
-      appendLog(jobId, `OK: ${itemName} -> ${filename} (${result.method})`);
+      reportLines.push(`OK   | ${rowNumber} | ${itemName} | ${filename} | ${outputMethod} | ${result.finalUrl || imageUrl}`);
+      appendLog(jobId, `OK: ${itemName} -> ${filename} (${outputMethod})`);
     } catch (err) {
       failed += 1;
       const error = compactError(err, MAX_REPORT_ERROR_LENGTH);

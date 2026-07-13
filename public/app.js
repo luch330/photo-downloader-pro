@@ -8,6 +8,7 @@ const retryInput = document.getElementById('retryInput');
 const concurrencyInput = document.getElementById('concurrencyInput');
 const browserFallbackInput = document.getElementById('browserFallbackInput');
 const htmlDiscoveryInput = document.getElementById('htmlDiscoveryInput');
+const outputModeInputs = Array.from(document.querySelectorAll('input[name="outputImageMode"]'));
 const fileNameEl = document.getElementById('fileName');
 const rowsCountEl = document.getElementById('rowsCount');
 const okCountEl = document.getElementById('okCount');
@@ -72,6 +73,8 @@ const nextStepText = document.getElementById('nextStepText');
 
 const SETTINGS_KEY = 'piccatch-settings';
 const THEME_KEY = 'piccatch-theme';
+const OUTPUT_IMAGE_MODE_ORIGINAL = 'original';
+const OUTPUT_IMAGE_MODE_RESIZE_2016_1512 = 'resize_2016x1512';
 const HISTORY_LIMIT = 8;
 
 const MODE_PRESETS = {
@@ -82,6 +85,7 @@ const MODE_PRESETS = {
     concurrencyInput: '8',
     browserFallbackInput: true,
     htmlDiscoveryInput: false,
+    outputImageMode: OUTPUT_IMAGE_MODE_ORIGINAL,
   },
   balanced: {
     label: 'Balanced',
@@ -90,6 +94,7 @@ const MODE_PRESETS = {
     concurrencyInput: '4',
     browserFallbackInput: true,
     htmlDiscoveryInput: false,
+    outputImageMode: OUTPUT_IMAGE_MODE_ORIGINAL,
   },
   safe: {
     label: 'Safe',
@@ -98,6 +103,7 @@ const MODE_PRESETS = {
     concurrencyInput: '2',
     browserFallbackInput: true,
     htmlDiscoveryInput: false,
+    outputImageMode: OUTPUT_IMAGE_MODE_ORIGINAL,
   },
 };
 
@@ -281,7 +287,8 @@ modeCards.forEach((btn) => {
   concurrencyInput,
   browserFallbackInput,
   htmlDiscoveryInput,
-].forEach((el) => {
+  ...outputModeInputs,
+].filter(Boolean).forEach((el) => {
   el.addEventListener('change', () => {
     refreshModeFromInputs(true);
     saveCurrentSettings();
@@ -546,6 +553,22 @@ function saveTheme() {
   }
 }
 
+function getOutputImageMode() {
+  const checked = outputModeInputs.find((input) => input.checked);
+  const value = checked?.value || OUTPUT_IMAGE_MODE_ORIGINAL;
+  return value === OUTPUT_IMAGE_MODE_RESIZE_2016_1512 ? OUTPUT_IMAGE_MODE_RESIZE_2016_1512 : OUTPUT_IMAGE_MODE_ORIGINAL;
+}
+
+function setOutputImageMode(mode) {
+  const normalized = mode === OUTPUT_IMAGE_MODE_RESIZE_2016_1512
+    ? OUTPUT_IMAGE_MODE_RESIZE_2016_1512
+    : OUTPUT_IMAGE_MODE_ORIGINAL;
+
+  outputModeInputs.forEach((input) => {
+    input.checked = input.value === normalized;
+  });
+}
+
 function loadSavedSettings() {
   try {
     const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}');
@@ -556,6 +579,7 @@ function loadSavedSettings() {
     if (saved.concurrencyInput !== undefined) concurrencyInput.value = saved.concurrencyInput;
     if (saved.browserFallbackInput !== undefined) browserFallbackInput.checked = saved.browserFallbackInput;
     if (saved.htmlDiscoveryInput !== undefined) htmlDiscoveryInput.checked = saved.htmlDiscoveryInput;
+    if (saved.outputImageMode !== undefined) setOutputImageMode(saved.outputImageMode);
     if (saved.mode) currentMode = saved.mode;
   } catch (err) {
     console.warn('Could not load saved settings:', err);
@@ -571,6 +595,7 @@ function saveCurrentSettings() {
       concurrencyInput: concurrencyInput.value,
       browserFallbackInput: browserFallbackInput.checked,
       htmlDiscoveryInput: htmlDiscoveryInput.checked,
+      outputImageMode: getOutputImageMode(),
       mode: currentMode,
     };
 
@@ -590,6 +615,7 @@ function applyMode(mode, persist = true) {
   concurrencyInput.value = preset.concurrencyInput;
   browserFallbackInput.checked = preset.browserFallbackInput;
   htmlDiscoveryInput.checked = preset.htmlDiscoveryInput;
+  setOutputImageMode(preset.outputImageMode || OUTPUT_IMAGE_MODE_ORIGINAL);
 
   updateModeUI();
 
@@ -606,7 +632,8 @@ function refreshModeFromInputs(persist = true) {
       String(retryInput.value || '') === preset.retryInput &&
       String(concurrencyInput.value || '') === preset.concurrencyInput &&
       Boolean(browserFallbackInput.checked) === Boolean(preset.browserFallbackInput) &&
-      Boolean(htmlDiscoveryInput.checked) === Boolean(preset.htmlDiscoveryInput)
+      Boolean(htmlDiscoveryInput.checked) === Boolean(preset.htmlDiscoveryInput) &&
+      getOutputImageMode() === (preset.outputImageMode || OUTPUT_IMAGE_MODE_ORIGINAL)
     );
   });
 
@@ -791,6 +818,7 @@ async function startUpload() {
       concurrency: Number(concurrencyInput.value || 4),
       browserFallback: browserFallbackInput.checked,
       htmlImageDiscovery: htmlDiscoveryInput.checked,
+      outputImageMode: getOutputImageMode(),
     },
   };
 
